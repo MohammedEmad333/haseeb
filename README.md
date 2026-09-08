@@ -99,7 +99,7 @@ only ever produced from code that passes its own checks.
 ```bash
 npm run android:apk     # build + sync + assembleDebug
 npm run android:open    # build + sync + open in Android Studio
-npm run android:icons   # regenerate launcher icons from resources/
+npm run android:icons   # regenerate launcher icons and splash from resources/
 ```
 
 The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`.

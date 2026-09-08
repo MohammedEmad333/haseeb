@@ -16,7 +16,7 @@
     "android:sync": "npm run build && cap sync android",
     "android:open": "npm run android:sync && cap open android",
     "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
-    "android:icons": "capacitor-assets generate --android"
+    "android:icons": "capacitor-assets generate --android && node scripts/android-splash.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^7.6.9",
