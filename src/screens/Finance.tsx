@@ -139,18 +139,8 @@ export function Finance() {
                     type="button"
                     aria-pressed={on}
                     onClick={() => toggleStatus(status)}
-                    className="hs-badge"
-                    style={{
-                      background: tint.bg,
-                      color: tint.fg,
-                      border: `1px solid ${on ? tint.fg : 'transparent'}`,
-                      cursor: 'pointer',
-                      padding: 'var(--hs-sp-3) var(--hs-sp-5)',
-                      minHeight: 32,
-                      font: 'inherit',
-                      fontSize: 'var(--hs-fs-badge)',
-                      fontWeight: 600,
-                    }}
+                    className="hs-badge-toggle"
+                    style={{ background: tint.bg, color: tint.fg, borderColor: on ? tint.fg : 'transparent' }}
                   >
                     <span className="hs-badge__dot" style={{ background: tint.dot }} aria-hidden />
                     {tint.label}

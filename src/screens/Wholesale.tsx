@@ -32,7 +32,14 @@ interface BuilderLine {
   qty: number;
 }
 
-/** A starting basket, so the builder is useful the moment the screen opens. */
+/**
+ * A starting basket, so the builder is useful the moment the screen opens.
+ *
+ * Quantities are clamped to what is actually on hand: quoting 300 units of a
+ * product with 90 in the warehouse gives a builder that can never issue its
+ * own default invoice. Raising a line past stock is still allowed while
+ * quoting — it is blocked at issue, with the shortfall named.
+ */
 const STARTER: readonly [string, number][] = [
   ['SKU-4501', 300],
   ['SKU-1042', 150],
@@ -64,7 +71,8 @@ export function Wholesale() {
     if (lines) return lines;
     return STARTER.flatMap(([sku, qty]) => {
       const product = catalogue.find((p) => p.sku === sku);
-      return product ? [{ productId: product.id, qty }] : [];
+      if (!product || product.qtyOnHand === 0) return [];
+      return [{ productId: product.id, qty: Math.min(qty, product.qtyOnHand) }];
     });
   }, [lines, catalogue]);
 

@@ -13,7 +13,7 @@ import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Tabs } from
 import { AutoGrid, InitialTile, PageHeader, StatTile, Timeline } from '@/ui/composites';
 import type { DebtorSummary } from '@/db/repositories/customers';
 import { DEBT_STATUS_LABEL, type DebtStatus } from '@/domain/debts';
-import { NOUNS, counted, dateShort, money, num } from '@/lib/format';
+import { NOUNS, counted, dateShort, digits, money, num } from '@/lib/format';
 import { smsHref, whatsappHref } from '@/lib/reminders';
 
 const STATUS_TINT: Record<DebtStatus, { bg: string; fg: string; amount: string }> = {
@@ -165,7 +165,7 @@ export function Debts() {
                           className="hs-num"
                           style={{ display: 'block', fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}
                         >
-                          {debtor.phone}
+                          {digits(debtor.phone)}
                           {debtor.lastPaymentAt ? ` · آخر سداد ${dateShort(debtor.lastPaymentAt)}` : ''}
                         </span>
                       </span>
@@ -249,7 +249,7 @@ function DebtorProfile({
             <div style={{ fontSize: 15.5, fontWeight: 600 }}>{debtor.name}</div>
             <div style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 3 }}>
               {debtor.kind === 'supplier' ? 'مورد' : debtor.kind === 'wholesale' ? 'عميل جملة' : 'عميل تجزئة'}
-              {debtor.sinceYear ? ` · منذ ${num(debtor.sinceYear).replace(/[,٬]/g, '')}` : ''}
+              {debtor.sinceYear ? ` · منذ ${digits(String(debtor.sinceYear))}` : ''}
             </div>
           </div>
         </div>

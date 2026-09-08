@@ -12,7 +12,7 @@ import { Button } from '@/ui/primitives';
 import type { InvoiceWithLines } from '@/db/types';
 import type { BusinessProfile } from '@/db/types';
 import { buildTaxQrPayload } from '@/lib/zatca';
-import { dateFull, money, num, percent } from '@/lib/format';
+import { dateFull, digits, money, num, percent } from '@/lib/format';
 
 export function TaxInvoice({
   invoice,
@@ -83,7 +83,8 @@ export function TaxInvoice({
             <div>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{profile?.name ?? 'حسيب'}</div>
               <div className="hs-num" style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}>
-                س.ت {profile?.commercialReg || '—'} · الرقم الضريبي {profile?.taxNumber || '—'}
+                س.ت {profile?.commercialReg ? digits(profile.commercialReg) : '—'} · الرقم الضريبي{' '}
+                {profile?.taxNumber ? digits(profile.taxNumber) : '—'}
               </div>
             </div>
           </div>

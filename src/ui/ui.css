@@ -164,6 +164,25 @@
   padding: var(--hs-sp-3) var(--hs-sp-6);
 }
 
+/* A badge that is also a filter toggle — same visual language as .hs-badge,
+   but a real control with a hit area. */
+.hs-badge-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hs-sp-2);
+  min-height: 32px;
+  padding: var(--hs-sp-3) var(--hs-sp-5);
+  border-radius: var(--hs-r-badge);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: var(--hs-fs-badge);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--hs-motion);
+}
+
 /* ---- Chip -------------------------------------------------------------- */
 .hs-chip {
   display: inline-flex;
@@ -485,4 +504,51 @@
 .hs-grid {
   display: grid;
   gap: var(--hs-gap);
+}
+
+/* ==========================================================================
+   Touch targets
+   The design's compact controls — filter chips, small buttons, the 38×22
+   permission switch — are correct for a pointer. On a touch device they are
+   below the 44px minimum, so they grow there and only there: the desktop
+   layout keeps the specified dimensions.
+   ========================================================================== */
+@media (pointer: coarse) {
+  .hs-chip,
+  .hs-btn--sm,
+  .hs-badge-toggle {
+    min-height: var(--hs-touch);
+  }
+
+  .hs-tab {
+    padding-block: var(--hs-sp-6);
+  }
+
+  /* The switch keeps its 38×22 track; the control around it grows to 44px so
+     a thumb has something to hit. */
+  .hs-toggle {
+    height: var(--hs-touch);
+    background: none;
+    border-radius: var(--hs-r-control);
+  }
+  .hs-toggle::before {
+    content: '';
+    position: absolute;
+    inset-block: 11px;
+    inset-inline: 0;
+    width: 38px;
+    height: 22px;
+    border-radius: var(--hs-r-pill);
+    background: var(--hs-text-dim);
+    transition: background var(--hs-motion);
+  }
+  .hs-toggle::after {
+    inset-block-start: 14px;
+  }
+  .hs-toggle[aria-checked='true'] {
+    background: none;
+  }
+  .hs-toggle[aria-checked='true']::before {
+    background: var(--hs-emerald);
+  }
 }

@@ -4,6 +4,7 @@ import {
   counted,
   dateFull,
   dateLong,
+  digits,
   dateShort,
   initial,
   money,
@@ -73,5 +74,21 @@ describe('Arabic noun agreement', () => {
     expect(counted(18, NOUNS.customer)).toBe('١٨ عميلاً');
     expect(counted(23, NOUNS.payment)).toBe('٢٣ سداداً');
     expect(counted(4, NOUNS.supplier)).toBe('٤ موردون');
+  });
+});
+
+describe('identifier digits', () => {
+  it('transliterates digits in identifiers without treating them as numbers', () => {
+    // Leading zeros and grouping must survive: a phone number is not a quantity.
+    expect(digits('01022223344')).toBe('٠١٠٢٢٢٢٣٣٤٤');
+    expect(digits('302199487')).toBe('٣٠٢١٩٩٤٨٧');
+    expect(digits('+20 100 555 6677')).toBe('+٢٠ ١٠٠ ٥٥٥ ٦٦٧٧');
+    expect(digits('INV-2481')).toBe('INV-٢٤٨١');
+  });
+
+  it('leaves identifiers alone when the Latin numbering system is active', () => {
+    setNumberingSystem('latn');
+    expect(digits('01022223344')).toBe('01022223344');
+    setNumberingSystem('arab');
   });
 });

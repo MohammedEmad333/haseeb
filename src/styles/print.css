@@ -15,15 +15,26 @@
     display: none !important;
   }
 
-  /* When an invoice card is on the page, print only it. */
-  body:has(.hs-print-target) .hs-shell > *:not(.hs-body),
-  body:has(.hs-print-target) .hs-sidebar,
-  body:has(.hs-print-target) .hs-topbar {
-    display: none !important;
+  /*
+   * When an invoice card is on the page, print only it.
+   *
+   * Hiding "everything that is not an ancestor of the target" with :not(:has())
+   * cannot work: the target's own ancestors match, and their other children
+   * come along. Hide the whole shell with `visibility` instead — which keeps
+   * layout intact — then re-show the target and lift it to the page origin.
+   */
+  body:has(.hs-print-target) .hs-shell {
+    visibility: hidden;
   }
-
-  body:has(.hs-print-target) .hs-main > *:not(:has(.hs-print-target)) {
-    display: none !important;
+  body:has(.hs-print-target) .hs-print-target,
+  body:has(.hs-print-target) .hs-print-target * {
+    visibility: visible;
+  }
+  body:has(.hs-print-target) .hs-print-target {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    width: 100%;
   }
 
   .hs-print-target {

@@ -237,6 +237,27 @@ error states in the `#FEF2F2`/`#B91C1C` pair, form validation on onboarding and
 both dialogs, an out-of-stock guard on the POS and the wholesale builder, and a
 print stylesheet that reduces the page to the tax invoice.
 
+## What was verified, and how
+
+Beyond the 61 unit and integration tests, the built bundle was driven in
+Chromium at 1440px and 390px:
+
+- All nine routes render with **zero console errors**.
+- **Zero requests leave the origin** across every route. With the network then
+  cut entirely, the POS still completes a sale, the tax-invoice QR is still
+  generated (a `data:` URI, not a fetch), and the Arabic font still resolves
+  from the bundle.
+- Fifteen interaction flows: add to cart → stepper → checkout → stock
+  decrement; credit sale refused without a customer; period and status filters
+  requerying; the wholesale slider recomputing line totals; issuing a wholesale
+  invoice; recording a payment against a balance; receiving stock and seeing it
+  on the movement timeline; a sale surviving a reload; and the mobile drawer
+  and FAB.
+- Accessibility: every interactive element has an accessible name, every table
+  a caption, one `h1` per screen, a visible focus ring on all 12 sampled tab
+  stops, and all touch targets ≥44px under `pointer: coarse`.
+- The print stylesheet reduces the page to the tax invoice alone.
+
 ## Known gaps
 
 - **Product photography.** The POS grid uses the design's striped placeholder;

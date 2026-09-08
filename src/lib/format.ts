@@ -125,6 +125,22 @@ export function dateLong(iso: string): string {
   return `${num(d.getDate())} ${MONTHS_AR[d.getMonth()]} ${plainNum(d.getFullYear())}`;
 }
 
+const ARABIC_INDIC = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+/**
+ * Transliterate the digits inside an identifier — a phone number, a tax
+ * registration, a commercial register number — into the active numbering
+ * system.
+ *
+ * These are strings, not quantities: they can carry leading zeros and have no
+ * magnitude, so they must not go through a number formatter. Non-digit
+ * characters (spaces, `+`, dashes) are left alone.
+ */
+export function digits(value: string): string {
+  if (numbering === 'latn') return value;
+  return value.replace(/[0-9]/g, (d) => ARABIC_INDIC[Number(d)]);
+}
+
 /**
  * Arabic noun agreement.
  *
