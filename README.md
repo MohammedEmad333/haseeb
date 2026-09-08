@@ -268,9 +268,17 @@ that the app works without one.
 - Semantic roles on tables, tabs (`role="tablist"` with arrow-key navigation),
   switches (`role="switch"`) and meters.
 - Focus rings on every interactive element; ≥44px touch targets.
-- Numbers are formatted through `Intl` with `ar-EG`; the numbering system is a
-  runtime setting (`setNumberingSystem('arab' | 'latn')`), never a hard-coded
-  digit.
+- Numbers are formatted through `Intl` with `ar-EG`. The numbering system is a
+  runtime setting, never a hard-coded digit: **Latin digits (0123456789) are
+  the default**, and Arabic-Indic (٠١٢٣٤٥٦٧٨٩) is one toggle away in
+  الإدارة العامة → العرض. The choice is stored in the local database, so it
+  survives a restart. A test fails the build if a literal Arabic-Indic digit
+  reappears in component source, since that would bypass the setting.
+- The percent sign follows the digits: ٪ (U+066A) is drawn to sit beside
+  Arabic-Indic numerals, and `%` beside Latin ones.
+- Signed and composite numeric runs (`+230%`, `74.50 × 2`, `150 – 299`) carry
+  `direction: ltr` inside an isolate. The `+`, `−` and `×` are bidi-neutral,
+  so without it an RTL line renders `+230%` as `230%+`.
 - `prefers-reduced-motion` disables the sync pulse and the hover lifts.
 
 ## Layouts

@@ -18,6 +18,7 @@ import {
 } from 'react';
 import { openHaseeb, resetToSeed, type Haseeb } from '@/db';
 import type { BusinessProfile } from '@/db/types';
+import { getNumberingSystem, setNumberingSystem, type NumberingSystem } from '@/lib/format';
 
 export type DbStatus = 'opening' | 'ready' | 'error';
 
@@ -32,6 +33,8 @@ interface HaseebContextValue extends Partial<Haseeb> {
   storageUsedBytes: number;
   search: string;
   setSearch: (value: string) => void;
+  numbering: NumberingSystem;
+  setNumbering: (system: NumberingSystem) => void;
   reset: () => void;
   retry: () => void;
 }
@@ -57,6 +60,10 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
           h.db.close();
           return;
         }
+        // Apply the stored digit preference before the first paint, so the
+        // numbers never flip in front of the user on load.
+        const stored = h.ops.preference('numbering');
+        if (stored === 'arab' || stored === 'latn') setNumberingSystem(stored);
         setHandle(h);
         setStatus('ready');
       })
@@ -98,6 +105,21 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
+  const setNumbering = useCallback(
+    (system: NumberingSystem) => {
+      setNumberingSystem(system);
+      handle?.ops.setPreference(
+        'numbering',
+        system,
+        `تغيير عرض الأرقام إلى ${system === 'arab' ? 'العربية' : 'الإنجليزية'}`,
+      );
+      void handle?.db.flush();
+      // The formatter is module state, so nothing re-renders on its own.
+      setRevision((r) => r + 1);
+    },
+    [handle],
+  );
+
   const value = useMemo<HaseebContextValue>(() => {
     const derived =
       handle && status === 'ready'
@@ -116,13 +138,15 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
       revision,
       search,
       setSearch,
+      numbering: getNumberingSystem(),
+      setNumbering,
       reset,
       retry,
       ...derived,
     };
     // `revision` is a deliberate dependency: it is the signal that the
     // derived reads above are stale.
-  }, [handle, status, error, revision, search, reset, retry]);
+  }, [handle, status, error, revision, search, reset, retry, setNumbering]);
 
   return <HaseebContext.Provider value={value}>{children}</HaseebContext.Provider>;
 }

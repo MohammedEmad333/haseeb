@@ -131,7 +131,7 @@ export function Wholesale() {
       header: 'الخصم',
       width: '1fr',
       render: (r) => (
-        <span className="hs-num" style={{ color: 'var(--hs-emerald)', fontWeight: 600 }}>
+        <span className="hs-num hs-signed" style={{ color: 'var(--hs-emerald)', fontWeight: 600 }}>
           −{percent(r.discountPercent, r.discountPercent % 1 === 0 ? 0 : 1)}
         </span>
       ),
@@ -241,7 +241,7 @@ export function Wholesale() {
                       <div style={{ fontSize: 'var(--hs-fs-cell)', fontWeight: 600, color: tint.fg }}>
                         {tier.labelAr}
                       </div>
-                      <div className="hs-num" style={{ fontSize: 'var(--hs-fs-badge)', color: tint.fg, marginBlockStart: 3, opacity: 0.85 }}>
+                      <div className="hs-num hs-signed" style={{ fontSize: 'var(--hs-fs-badge)', color: tint.fg, marginBlockStart: 3, opacity: 0.85 }}>
                         {tier.maxQty === null
                           ? `${counted(tier.minQty, NOUNS.unit)} وأكثر`
                           : `${num(tier.minQty)} – ${counted(tier.maxQty, NOUNS.unit)}`}

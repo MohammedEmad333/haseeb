@@ -13,7 +13,7 @@ import { Button, Card, CardBody, CardHead } from '@/ui/primitives';
 import { AutoGrid, KpiTile, PageHeader } from '@/ui/composites';
 import { SalesProfitChart } from '@/screens/parts/SalesProfitChart';
 import { ChannelDonut } from '@/screens/parts/ChannelDonut';
-import { dateLong, moneyRounded, signedPercent } from '@/lib/format';
+import { NOUNS, counted, dateLong, moneyRounded, signedPercent } from '@/lib/format';
 import { exportReportCsv } from '@/lib/report';
 
 export function Dashboard() {
@@ -76,7 +76,13 @@ export function Dashboard() {
         }}
       >
         <Card panel style={{ gridColumn: 'span 1', minWidth: 0 }}>
-          <CardHead title="المبيعات مقابل الأرباح" sub="آخر ٧ أيام · بالجنيه" actions={<ChartLegend />} />
+          <CardHead
+            title="المبيعات مقابل الأرباح"
+            // The window length and the currency come from the data, not from
+            // a string with a digit baked into it.
+            sub={`آخر ${counted(view.series.length, NOUNS.day)} · بالـ${unit}`}
+            actions={<ChartLegend />}
+          />
           <CardBody style={{ paddingInline: 'var(--hs-sp-9)' }}>
             <SalesProfitChart points={view.series} />
           </CardBody>

@@ -552,3 +552,22 @@
     background: var(--hs-emerald);
   }
 }
+
+/*
+ * Signed and composite numeric runs.
+ *
+ * A leading "+" or "−", and an operator like "×" between two numbers, are
+ * bidi-neutral characters. In an RTL line they attach to the paragraph
+ * direction rather than to the number, so "+230%" renders as "230%+" and
+ * "74.50 × 2" can flip to "2 × 74.50". Isolating the run and setting LTR
+ * inside it keeps the sign and the operator where they belong.
+ *
+ * This is deliberately narrower than .hs-num: a plain amount is a single
+ * numeric run and needs no help, and forcing LTR on runs that also carry
+ * Arabic words would misalign them.
+ */
+.hs-signed {
+  unicode-bidi: isolate;
+  direction: ltr;
+  white-space: nowrap;
+}

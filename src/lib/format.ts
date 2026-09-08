@@ -11,7 +11,7 @@ export type NumberingSystem = 'arab' | 'latn';
 
 const LOCALE = 'ar-EG';
 
-let numbering: NumberingSystem = 'arab';
+let numbering: NumberingSystem = 'latn';
 
 export function setNumberingSystem(system: NumberingSystem): void {
   numbering = system;
@@ -52,10 +52,11 @@ export function moneyRounded(piasters: number): string {
   return num(Math.round(piasters / 100), 0);
 }
 
-/** «٤٨.٢ك» — the compact form used in the donut hole. */
+/** «48.2K» / «٤٨٫٢ك» — the compact form used in the donut hole. */
 export function moneyCompact(piasters: number): string {
   const pounds = piasters / 100;
-  if (Math.abs(pounds) >= 1000) return `${num(Math.round(pounds / 100) / 10, 1)}ك`;
+  const thousands = numbering === 'arab' ? 'ك' : 'K';
+  if (Math.abs(pounds) >= 1000) return `${num(Math.round(pounds / 100) / 10, 1)}${thousands}`;
   return num(Math.round(pounds), 0);
 }
 
@@ -65,15 +66,20 @@ export function plainNum(value: number): string {
   return formatter({ useGrouping: false, maximumFractionDigits: 0 }).format(value);
 }
 
-/** «٢٤٪» */
-export function percent(value: number, fractionDigits = 0): string {
-  return `${num(value, fractionDigits)}٪`;
+/** The percent sign that matches the active numbering system. */
+function percentSign(): string {
+  return numbering === 'arab' ? '٪' : '%';
 }
 
-/** Signed delta badge text: 12 → «+١٢٪», -4 → «−٤٪» (U+2212 minus). */
+/** «24%» / «٢٤٪» */
+export function percent(value: number, fractionDigits = 0): string {
+  return `${num(value, fractionDigits)}${percentSign()}`;
+}
+
+/** Signed delta badge text: 12 → «+12%», -4 → «−4%» (U+2212 minus). */
 export function signedPercent(value: number, fractionDigits = 0): string {
   const sign = value < 0 ? '−' : '+';
-  return `${sign}${num(Math.abs(value), fractionDigits)}٪`;
+  return `${sign}${num(Math.abs(value), fractionDigits)}${percentSign()}`;
 }
 
 /** Signed integer for stock deltas: 60 → «+٦٠», -5 → «−٥». */

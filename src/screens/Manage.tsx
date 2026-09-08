@@ -11,7 +11,8 @@ import { AutoGrid, InitialTile, PageHeader, Timeline } from '@/ui/composites';
 import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
 
 export function Manage() {
-  const { analytics, ops, profile, revision, db, reset, storageLocation, syncPending } = useHaseeb();
+  const { analytics, ops, profile, revision, db, reset, storageLocation, syncPending, numbering, setNumbering } =
+    useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
   const navigate = useNavigate();
 
@@ -69,7 +70,7 @@ export function Manage() {
                   <span style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-on-dark-muted)' }}>
                     {metric.label}
                   </span>
-                  <span className="hs-num" style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-on-dark)', fontWeight: 600 }}>
+                  <span className="hs-num hs-signed" style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-on-dark)', fontWeight: 600 }}>
                     {metric.unit === 'percent' ? percent(metric.value, 1) : `${num(metric.value, 1)}×`}
                   </span>
                 </div>
@@ -192,6 +193,38 @@ export function Manage() {
           </CardBody>
         </Card>
       </AutoGrid>
+
+      <Card panel style={{ marginBlockEnd: 'var(--hs-sp-8)' }}>
+        <CardHead title="العرض" sub="يُحفظ على هذا الجهاز" />
+        <CardBody>
+          <div className="hs-row" style={{ justifyContent: 'space-between', gap: 'var(--hs-sp-8)', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 'var(--hs-fs-cell)', fontWeight: 600 }}>شكل الأرقام</div>
+              <div style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-muted)', marginBlockStart: 3 }}>
+                يسري على كل الشاشات والفواتير والتقارير المصدّرة.
+              </div>
+            </div>
+            <div role="group" aria-label="شكل الأرقام" className="hs-row" style={{ gap: 'var(--hs-sp-3)' }}>
+              <button
+                type="button"
+                className="hs-chip"
+                aria-pressed={numbering === 'latn'}
+                onClick={() => setNumbering('latn')}
+              >
+                إنجليزية · 1234
+              </button>
+              <button
+                type="button"
+                className="hs-chip"
+                aria-pressed={numbering === 'arab'}
+                onClick={() => setNumbering('arab')}
+              >
+                عربية · ١٢٣٤
+              </button>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
 
       <Card panel>
         <CardHead title="قاعدة البيانات المحلية" sub={storageLocation} />

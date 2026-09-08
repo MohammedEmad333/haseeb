@@ -482,7 +482,7 @@ function CartPanel({
                   {line.name}
                 </span>
                 <span
-                  className="hs-num"
+                  className="hs-num hs-signed"
                   style={{ display: 'block', fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-on-dark-subtle)', marginBlockStart: 2 }}
                 >
                   {money(line.unit)} × {num(line.qty)}
@@ -525,7 +525,7 @@ function CartPanel({
         <TotalRow label="المجموع الفرعي" value={money(totals.taxable)} />
         <TotalRow label={`الضريبة ${percent(vatRate, vatRate % 1 === 0 ? 0 : 1)}`} value={money(totals.vat)} />
         {totals.discount > 0 ? (
-          <TotalRow label="خصم" value={`−${money(totals.discount)}`} accent />
+          <TotalRow label="خصم" value={`−${money(totals.discount)}`} accent signed />
         ) : null}
       </div>
 
@@ -606,12 +606,22 @@ function Stepper({
   );
 }
 
-function TotalRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function TotalRow({
+  label,
+  value,
+  accent,
+  signed,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  signed?: boolean;
+}) {
   return (
     <div className="hs-row" style={{ justifyContent: 'space-between' }}>
       <span style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-on-dark-subtle)' }}>{label}</span>
       <span
-        className="hs-num"
+        className={signed ? 'hs-num hs-signed' : 'hs-num'}
         style={{ fontSize: 'var(--hs-fs-cell)', color: accent ? 'var(--hs-mint)' : 'var(--hs-on-dark-muted)' }}
       >
         {value}

@@ -108,7 +108,7 @@ export function TaxInvoice({
           {invoice.lines.map((line) => (
             <li key={line.id} className="hs-row" style={{ gap: 'var(--hs-sp-6)' }}>
               <span style={{ flex: 1, fontSize: 'var(--hs-fs-cell)' }}>{line.name}</span>
-              <span className="hs-num" style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-text-subtle)' }}>
+              <span className="hs-num hs-signed" style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-text-subtle)' }}>
                 ×{num(line.qty)}
               </span>
               <span className="hs-num" style={{ fontSize: 'var(--hs-fs-cell)', fontWeight: 600, minWidth: 74, textAlign: 'end' }}>

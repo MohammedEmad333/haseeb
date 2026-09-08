@@ -37,6 +37,7 @@ export function KpiTile({
         </span>
         {delta ? (
           <Badge
+            className="hs-signed"
             bg={deltaTone === 'down' ? 'var(--hs-danger-bg)' : 'var(--hs-mint-bg)'}
             fg={deltaTone === 'down' ? 'var(--hs-danger-text)' : 'var(--hs-mint-text)'}
           >

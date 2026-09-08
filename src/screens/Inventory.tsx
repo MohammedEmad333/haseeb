@@ -176,7 +176,7 @@ export function Inventory() {
                     title: `${MOVEMENT_LABEL[m.kind]} — ${m.productName}`,
                     meta: `${who ? `${who} · ` : ''}${dateAndTime(m.occurredAt)}`,
                     trailing: (
-                      <span className="hs-num" style={{ fontWeight: 600, color: tint.fg }}>
+                      <span className="hs-num hs-signed" style={{ fontWeight: 600, color: tint.fg }}>
                         {signedNum(m.qtyDelta)}
                       </span>
                     ),

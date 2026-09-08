@@ -221,6 +221,31 @@ export class OperationsRepository {
     );
   }
 
+  // ---- preferences -----------------------------------------------------
+
+  /** A user preference, or null when it has never been set. */
+  preference(key: string): string | null {
+    const value = this.db.value<string>('SELECT value FROM meta WHERE key = ?', [`pref.${key}`]);
+    return value ?? null;
+  }
+
+  setPreference(key: string, value: string, description: string): void {
+    this.db.mutate(
+      {
+        entity: 'preference',
+        entityId: key,
+        action: 'set',
+        description,
+        payload: { key, value },
+        // A display preference is this device's business, not something to
+        // push to a peer that may be set up differently.
+        localOnly: true,
+      },
+      (db) =>
+        db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [`pref.${key}`, value]),
+    );
+  }
+
   /** Record an encrypted local backup in the audit trail. */
   recordBackup(): void {
     this.db.mutate(
