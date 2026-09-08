@@ -16,9 +16,16 @@ const config: CapacitorConfig = {
     // identifiable as the Android shell rather than a random browser.
     appendUserAgent: 'Haseeb/1.0 (Android)',
   },
-  // No plugins are declared: the launch splash comes from the Android launch
-  // theme (AppTheme.NoActionBarLaunch → @drawable/splash), and every feature
-  // the app has is web code running against the local database.
+  plugins: {
+    // SQLCipher is what encrypts the native database. The plugin refuses its
+    // encrypted modes unless this is set, so it is not optional.
+    CapacitorSQLite: {
+      androidIsEncryption: true,
+      iosIsEncryption: true,
+      androidBiometric: { biometricAuth: false },
+      iosBiometric: { biometricAuth: false },
+    },
+  },
 };
 
 export default config;

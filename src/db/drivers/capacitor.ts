@@ -41,22 +41,26 @@ export class CapacitorSqliteDriver implements SqlDriver {
     const sqlite = new SQLiteConnection(CapacitorSQLite);
 
     // On the very first run there is no secret yet: generate one (or take the
-    // owner's passphrase), hand it to the platform secure store, and open in
-    // 'encryption' mode, which is the one-time conversion. Afterwards the
-    // secret is already stored and 'secret' mode opens the encrypted file —
-    // the secret value itself never has to be kept by the app.
+    // owner's passphrase) and hand it to the platform secure store. From then
+    // on the secret is already there and the app never has to hold it.
+    //
+    // The open mode is always 'secret'. 'encryption' is *not* the mode for
+    // creating an encrypted database — it converts an existing plaintext file
+    // in place, so on a fresh install it fails with "Failed in encryption …
+    // not found". 'secret' creates the file encrypted, or opens one that
+    // already is. (Verified on an emulator; the first attempt used
+    // 'encryption' and could not open at all.)
     const { result: secretStored } = await sqlite.isSecretStored();
     if (!secretStored) {
       await sqlite.setEncryptionSecret(options.passphrase ?? generateSecret());
     }
-    const mode = secretStored ? 'secret' : 'encryption';
 
     // A connection left behind by a previous launch would make
     // createConnection fail; closing it first makes open idempotent.
     const { result: alreadyConnected } = await sqlite.isConnection(DATABASE, false);
     if (alreadyConnected) await sqlite.closeConnection(DATABASE, false);
 
-    const db = await sqlite.createConnection(DATABASE, true, mode, VERSION, false);
+    const db = await sqlite.createConnection(DATABASE, true, 'secret', VERSION, false);
     await db.open();
     // Every statement is CREATE ... IF NOT EXISTS, so this is also the
     // forward-compatibility path for an existing file.
