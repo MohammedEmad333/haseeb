@@ -125,6 +125,57 @@ export function dateLong(iso: string): string {
   return `${num(d.getDate())} ${MONTHS_AR[d.getMonth()]} ${plainNum(d.getFullYear())}`;
 }
 
+/**
+ * Arabic noun agreement.
+ *
+ * Arabic does not have one plural: 1 takes the singular, 2 takes the dual,
+ * 3–10 take the plural, and 11+ take an accusative singular. Writing
+ * «١ أصناف» the way an English-shaped template would is simply wrong, and a
+ * shopkeeper reads it as sloppy software.
+ */
+export interface ArabicForms {
+  /** صنف — used for 1 and, with «لا», for 0. */
+  one: string;
+  /** صنفان — the dual. */
+  two: string;
+  /** أصناف — 3 to 10. */
+  few: string;
+  /** صنفاً — 11 and above. */
+  many: string;
+}
+
+const pluralRules = new Intl.PluralRules('ar-EG');
+
+/** «٣ أصناف» · «صنف واحد» · «١٤ صنفاً» */
+export function counted(value: number, forms: ArabicForms): string {
+  const category = pluralRules.select(value);
+  switch (category) {
+    case 'zero':
+      return `لا ${forms.few}`;
+    case 'one':
+      return `${forms.one} واحد`;
+    case 'two':
+      return forms.two;
+    case 'few':
+      return `${num(value)} ${forms.few}`;
+    default:
+      return `${num(value)} ${forms.many}`;
+  }
+}
+
+/** The noun forms this app needs. */
+export const NOUNS = {
+  item: { one: 'صنف', two: 'صنفان', few: 'أصناف', many: 'صنفاً' },
+  customer: { one: 'عميل', two: 'عميلان', few: 'عملاء', many: 'عميلاً' },
+  supplier: { one: 'مورد', two: 'موردان', few: 'موردون', many: 'مورداً' },
+  invoice: { one: 'فاتورة', two: 'فاتورتان', few: 'فواتير', many: 'فاتورة' },
+  payment: { one: 'سداد', two: 'سدادان', few: 'سدادات', many: 'سداداً' },
+  order: { one: 'طلب', two: 'طلبان', few: 'طلبات', many: 'طلباً' },
+  operation: { one: 'عملية', two: 'عمليتان', few: 'عمليات', many: 'عملية' },
+  day: { one: 'يوم', two: 'يومان', few: 'أيام', many: 'يوماً' },
+  unit: { one: 'وحدة', two: 'وحدتان', few: 'وحدات', many: 'وحدة' },
+} as const satisfies Record<string, ArabicForms>;
+
 /** First letter of a name, for avatar tiles. */
 export function initial(name: string): string {
   return Array.from(name.trim())[0] ?? '؟';

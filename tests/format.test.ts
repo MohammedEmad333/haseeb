@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  NOUNS,
+  counted,
   dateFull,
   dateLong,
   dateShort,
@@ -57,5 +59,19 @@ describe('formatting', () => {
     expect(initial('محمود عبد الله')).toBe('م');
     expect(initial('  ندى')).toBe('ن');
     expect(initial('')).toBe('؟');
+  });
+});
+
+describe('Arabic noun agreement', () => {
+  it('uses the singular, dual, plural and accusative forms correctly', () => {
+    // Arabic has four shapes here, and "١ أصناف" is simply ungrammatical.
+    expect(counted(0, NOUNS.item)).toBe('لا أصناف');
+    expect(counted(1, NOUNS.item)).toBe('صنف واحد');
+    expect(counted(2, NOUNS.item)).toBe('صنفان');
+    expect(counted(4, NOUNS.item)).toBe('٤ أصناف');
+    expect(counted(14, NOUNS.item)).toBe('١٤ صنفاً');
+    expect(counted(18, NOUNS.customer)).toBe('١٨ عميلاً');
+    expect(counted(23, NOUNS.payment)).toBe('٢٣ سداداً');
+    expect(counted(4, NOUNS.supplier)).toBe('٤ موردون');
   });
 });

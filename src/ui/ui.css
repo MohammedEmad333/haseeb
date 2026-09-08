@@ -323,6 +323,15 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* On a phone a fractional column layout squeezes cells until product names
+   wrap to three lines. Give the table a floor and let the container scroll
+   instead — the page itself still never scrolls sideways. */
+@media (max-width: 700px) {
+  .hs-table__scroll .hs-table {
+    min-width: 520px;
+  }
+}
 .hs-num {
   font-family: var(--hs-font-mono), var(--hs-font-sans);
   font-feature-settings: 'tnum' 1;

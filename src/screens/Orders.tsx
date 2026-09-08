@@ -10,7 +10,7 @@ import { PageHeader } from '@/ui/composites';
 import { TaxInvoice } from '@/screens/parts/TaxInvoice';
 import { ORDER_STATUS_LABEL } from '@/db/repositories/operations';
 import type { Order, OrderDirection, OrderStatus } from '@/db/types';
-import { dateAndTime, money, num } from '@/lib/format';
+import { NOUNS, counted, dateAndTime, money } from '@/lib/format';
 
 const STATUS_TINT: Record<OrderStatus, { bg: string; fg: string; bar: string }> = {
   completed: { bg: 'var(--hs-mint-bg)', fg: 'var(--hs-mint-text)', bar: 'var(--hs-emerald)' },
@@ -54,7 +54,7 @@ export function Orders() {
         <Card panel style={{ minWidth: 0 }}>
           <CardHead
             title="الطلبات"
-            sub={`${num(view.orders.length)} طلباً · بالـ${unit}`}
+            sub={`${counted(view.orders.length, NOUNS.order)} · بالـ${unit}`}
             actions={
               <Tabs
                 label="نوع الطلبات"
@@ -136,7 +136,7 @@ function OrderRow({ order, onAdvance }: { order: Order; onAdvance: () => void })
           className="hs-num"
           style={{ display: 'block', fontSize: 'var(--hs-fs-meta)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}
         >
-          {order.itemCount > 0 ? `${num(order.itemCount)} أصناف · ` : ''}
+          {order.itemCount > 0 ? `${counted(order.itemCount, NOUNS.item)} · ` : ''}
           {dateAndTime(order.placedAt)}
           {order.fulfilment ? ` · ${order.fulfilment}` : ''}
         </span>

@@ -35,18 +35,22 @@ interface Errors {
 }
 
 export function Onboarding() {
-  const { ops, db } = useHaseeb();
+  const { ops, db, profile } = useHaseeb();
   const navigate = useNavigate();
 
+  // An existing profile prefills the form: after registration this same screen
+  // is how the owner corrects what prints on their invoices.
+  const editing = Boolean(profile?.onboardedAt);
+
   const [step, setStep] = useState(1);
-  const [name, setName] = useState('');
-  const [businessType, setBusinessType] = useState(BUSINESS_TYPES[0]);
-  const [currency, setCurrency] = useState(CURRENCIES[0].code);
-  const [phone, setPhone] = useState('');
-  const [commercialReg, setCommercialReg] = useState('');
-  const [taxNumber, setTaxNumber] = useState('');
-  const [vatRate, setVatRate] = useState(String(DEFAULT_VAT_RATE));
-  const [confirmed, setConfirmed] = useState(false);
+  const [name, setName] = useState(profile?.name ?? '');
+  const [businessType, setBusinessType] = useState(profile?.businessType ?? BUSINESS_TYPES[0]);
+  const [currency, setCurrency] = useState(profile?.currencyCode ?? CURRENCIES[0].code);
+  const [phone, setPhone] = useState(profile?.phone ?? '');
+  const [commercialReg, setCommercialReg] = useState(profile?.commercialReg ?? '');
+  const [taxNumber, setTaxNumber] = useState(profile?.taxNumber ?? '');
+  const [vatRate, setVatRate] = useState(String(profile?.vatRate ?? DEFAULT_VAT_RATE));
+  const [confirmed, setConfirmed] = useState(editing);
   const [errors, setErrors] = useState<Errors>({});
 
   const validateStep = (target: number): boolean => {
@@ -81,7 +85,7 @@ export function Onboarding() {
       commercialReg: commercialReg.trim(),
       taxNumber: taxNumber.trim(),
       vatRate: Number(vatRate) || DEFAULT_VAT_RATE,
-      onboardedAt: new Date().toISOString(),
+      onboardedAt: profile?.onboardedAt ?? new Date().toISOString(),
     });
     void db?.flush();
     navigate('/', { replace: true });
@@ -98,8 +102,6 @@ export function Onboarding() {
           margin: '0 auto',
         }}
       >
-        <BrandPanel />
-
         <section
           style={{
             background: 'var(--hs-surface)',
@@ -127,7 +129,9 @@ export function Onboarding() {
             </span>
           </div>
 
-          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>تسجيل المنشأة</h1>
+          <h1 style={{ margin: 0, fontSize: 19, fontWeight: 600 }}>
+            {editing ? 'بيانات المنشأة' : 'تسجيل المنشأة'}
+          </h1>
           <p style={{ margin: '5px 0 var(--hs-sp-10)', fontSize: 'var(--hs-fs-body)', color: 'var(--hs-text-muted)' }}>
             هذه البيانات تظهر على فواتيرك وتقاريرك.
           </p>
@@ -317,6 +321,8 @@ export function Onboarding() {
             <div className="hs-row" style={{ gap: 'var(--hs-sp-4)' }}>
               {step > 1 ? (
                 <Button onClick={() => setStep((s) => s - 1)}>السابق</Button>
+              ) : editing ? (
+                <Button onClick={() => navigate('/manage')}>إلغاء</Button>
               ) : null}
               {step < 3 ? (
                 <Button
@@ -336,12 +342,14 @@ export function Onboarding() {
                   style={{ padding: 15, fontSize: 14.5, fontWeight: 600, borderRadius: 15, boxShadow: 'var(--hs-shadow-cta)' }}
                   onClick={submit}
                 >
-                  إنشاء المنشأة والمتابعة
+                  {editing ? 'حفظ البيانات' : 'إنشاء المنشأة والمتابعة'}
                 </Button>
               )}
             </div>
           </div>
         </section>
+
+        <BrandPanel />
       </div>
     </div>
   );

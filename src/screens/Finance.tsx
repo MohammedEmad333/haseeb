@@ -11,7 +11,7 @@ import { useHaseeb } from '@/state/HaseebProvider';
 import { Badge, Button, Card, CardHead, ChipGroup, EmptyState, Tabs } from '@/ui/primitives';
 import { AccentCard, AutoGrid, DataTable, PageHeader, type Column } from '@/ui/composites';
 import type { Invoice, InvoiceStatus } from '@/db/types';
-import { dateFull, money, num, percent } from '@/lib/format';
+import { NOUNS, counted, dateFull, money, percent } from '@/lib/format';
 
 type Period = 'today' | 'week' | 'month' | 'all';
 type Kind = 'all' | 'retail' | 'wholesale';
@@ -166,7 +166,7 @@ export function Finance() {
         <AccentCard
           label="مبلغ الفواتير"
           value={money(view.summary.invoiced, 0)}
-          note={`${num(view.summary.invoiceCount)} فاتورة في الفترة`}
+          note={`${counted(view.summary.invoiceCount, NOUNS.invoice)} في الفترة`}
           accent="var(--hs-ink)"
         />
         <AccentCard
@@ -192,7 +192,7 @@ export function Finance() {
       <Card panel>
         <CardHead
           title="الفواتير"
-          sub={`${num(view.rows.length)} فاتورة · بالـ${unit}`}
+          sub={`${counted(view.rows.length, NOUNS.invoice)} · بالـ${unit}`}
           actions={
             <Tabs
               label="قناة البيع"

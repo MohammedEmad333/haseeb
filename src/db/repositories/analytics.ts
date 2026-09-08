@@ -271,7 +271,12 @@ export class AnalyticsRepository {
   /** The financial-health score and its four meters (الإدارة العامة). */
   financialHealth(asOf = new Date()): {
     score: number;
-    metrics: Array<{ label: string; display: string; fill: number; color: string }>;
+    /**
+     * Raw values with the unit they are measured in. Formatting stays in the
+     * UI layer — a repository that returns pre-rendered digits cannot honour
+     * the numbering-system setting.
+     */
+    metrics: Array<{ label: string; value: number; unit: 'percent' | 'times'; fill: number; color: string }>;
   } {
     const week = this.weekTotals(asOf);
     const debt = this.#customers.debtTotals(asOf);
@@ -296,25 +301,29 @@ export class AnalyticsRepository {
       metrics: [
         {
           label: 'السيولة النقدية',
-          display: `${round1(liquidity)}٪`,
+          value: round1(liquidity),
+          unit: 'percent',
           fill: clamp(liquidity / 100, 0, 1),
           color: '#10B981',
         },
         {
           label: 'هامش الربح',
-          display: `${round1(margin)}٪`,
+          value: round1(margin),
+          unit: 'percent',
           fill: clamp(margin / 40, 0, 1),
           color: '#059669',
         },
         {
           label: 'نسبة الديون للمبيعات',
-          display: `${round1(debtRatio)}٪`,
+          value: round1(debtRatio),
+          unit: 'percent',
           fill: clamp(debtRatio / 100, 0, 1),
           color: '#F59E0B',
         },
         {
           label: 'دوران المخزون',
-          display: `${round1(stockTurns)}×`,
+          value: round1(stockTurns),
+          unit: 'times',
           fill: clamp(stockTurns / 6, 0, 1),
           color: '#CBD5E1',
         },

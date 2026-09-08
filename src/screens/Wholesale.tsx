@@ -19,7 +19,7 @@ import {
   type TierName,
 } from '@/domain/wholesale';
 import { computeTotals } from '@/domain/tax';
-import { money, num, percent } from '@/lib/format';
+import { NOUNS, counted, money, num, percent } from '@/lib/format';
 
 const TIER_TINT: Record<TierName, { bg: string; border: string; fg: string; label: string }> = {
   silver: { bg: 'var(--hs-surface-alt)', border: 'var(--hs-border)', fg: 'var(--hs-text-slate-2)', label: 'شريحة فضية' },
@@ -193,7 +193,7 @@ export function Wholesale() {
         }}
       >
         <Card panel style={{ minWidth: 0 }}>
-          <CardHead title="عملاء الجملة" sub={`${num(wholesalers.length)} عميلاً`} />
+          <CardHead title="عملاء الجملة" sub={counted(wholesalers.length, NOUNS.customer)} />
           <CardBody style={{ paddingInline: 0 }}>
             {wholesalers.length === 0 ? (
               <EmptyState title="لا يوجد عملاء جملة" body="أضف عميل جملة لتظهر شريحته وحدّه الأدنى هنا." />
@@ -235,8 +235,8 @@ export function Wholesale() {
                       </div>
                       <div className="hs-num" style={{ fontSize: 'var(--hs-fs-badge)', color: tint.fg, marginBlockStart: 3, opacity: 0.85 }}>
                         {tier.maxQty === null
-                          ? `${num(tier.minQty)} وحدة وأكثر`
-                          : `${num(tier.minQty)} – ${num(tier.maxQty)} وحدة`}
+                          ? `${counted(tier.minQty, NOUNS.unit)} وأكثر`
+                          : `${num(tier.minQty)} – ${counted(tier.maxQty, NOUNS.unit)}`}
                       </div>
                       <div className="hs-num" style={{ fontSize: 22, fontWeight: 600, color: tint.fg, marginBlockStart: 'var(--hs-sp-4)' }}>
                         {percent(tier.discountPercent)}

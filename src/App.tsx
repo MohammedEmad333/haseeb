@@ -71,7 +71,9 @@ function Gate() {
         <Route path="/orders" element={<Orders />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/manage" element={<Manage />} />
-        <Route path="/onboarding" element={<Navigate to="/" replace />} />
+        {/* Reachable after registration too — it is also the place to correct
+            the name, tax number or VAT rate that print on every invoice. */}
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>

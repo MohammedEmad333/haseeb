@@ -12,7 +12,7 @@ import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input } from '@/ui
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
 import type { Product, StockMovement } from '@/db/types';
 import { MOVEMENT_LABEL, STOCK_STATUS_LABEL, type StockStatus } from '@/domain/inventory';
-import { dateAndTime, money, num, signedNum } from '@/lib/format';
+import { NOUNS, counted, dateAndTime, money, num, signedNum } from '@/lib/format';
 
 const STATUS_TINT: Record<StockStatus, { bg: string; fg: string; qty: string }> = {
   inStock: { bg: 'var(--hs-mint-bg)', fg: 'var(--hs-mint-text)', qty: 'var(--hs-ink)' },
@@ -121,7 +121,7 @@ export function Inventory() {
               role="status"
             >
               <span aria-hidden style={{ width: 9, height: 9, background: 'var(--hs-warn-solid)', transform: 'rotate(45deg)' }} />
-              إنذار نفاد الكمية — {num(view.alerts)} أصناف
+              إنذار نفاد الكمية — {counted(view.alerts, NOUNS.item)}
             </span>
           ) : null
         }
@@ -141,7 +141,7 @@ export function Inventory() {
 
       <AutoGrid min={340} style={{ alignItems: 'start' }}>
         <Card panel style={{ minWidth: 0 }}>
-          <CardHead title="أرصدة الأصناف" sub={`${num(view.rows.length)} صنفاً · بالـ${unit}`} />
+          <CardHead title="أرصدة الأصناف" sub={`${counted(view.rows.length, NOUNS.item)} · بالـ${unit}`} />
           <DataTable
             caption="جدول أرصدة المخزن"
             columns={columns}

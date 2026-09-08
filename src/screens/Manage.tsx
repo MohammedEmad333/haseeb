@@ -4,14 +4,16 @@
  */
 
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Meter, Toggle } from '@/ui/primitives';
 import { AutoGrid, InitialTile, PageHeader, Timeline } from '@/ui/composites';
-import { dateAndTime, money, num, percent } from '@/lib/format';
+import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
 
 export function Manage() {
   const { analytics, ops, profile, revision, db, reset, storageLocation, syncPending } = useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
+  const navigate = useNavigate();
 
   const view = useMemo(() => {
     if (!analytics || !ops) return null;
@@ -35,6 +37,7 @@ export function Manage() {
       <PageHeader
         title="الإدارة العامة"
         sub="الصحة المالية · التكاليف التشغيلية · الصلاحيات وسجل التدقيق"
+        actions={<Button onClick={() => navigate('/onboarding')}>بيانات المنشأة</Button>}
       />
 
       <div
@@ -67,7 +70,7 @@ export function Manage() {
                     {metric.label}
                   </span>
                   <span className="hs-num" style={{ fontSize: 'var(--hs-fs-cell)', color: 'var(--hs-on-dark)', fontWeight: 600 }}>
-                    {metric.display}
+                    {metric.unit === 'percent' ? percent(metric.value, 1) : `${num(metric.value, 1)}×`}
                   </span>
                 </div>
                 <Meter value={metric.fill} color={metric.color} height={5} onDark label={metric.label} />
@@ -197,7 +200,7 @@ export function Manage() {
             البيانات محفوظة على هذا الجهاز ومشفّرة بمعيار AES-256-GCM. المزامنة اختيارية: العمليات
             تُدرَج في طابور محلي وتُرفَع فقط عند تفعيل المزامنة —
             {' '}
-            <span className="hs-num">{num(syncPending)}</span> عملية في الطابور الآن.
+            {counted(syncPending, NOUNS.operation)} في الطابور الآن.
           </p>
 
           <div className="hs-row" style={{ gap: 'var(--hs-sp-4)', marginBlockStart: 'var(--hs-sp-8)', flexWrap: 'wrap' }}>

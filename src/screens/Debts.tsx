@@ -13,7 +13,7 @@ import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Tabs } from
 import { AutoGrid, InitialTile, PageHeader, StatTile, Timeline } from '@/ui/composites';
 import type { DebtorSummary } from '@/db/repositories/customers';
 import { DEBT_STATUS_LABEL, type DebtStatus } from '@/domain/debts';
-import { dateShort, money, num } from '@/lib/format';
+import { NOUNS, counted, dateShort, money, num } from '@/lib/format';
 import { smsHref, whatsappHref } from '@/lib/reminders';
 
 const STATUS_TINT: Record<DebtStatus, { bg: string; fg: string; amount: string }> = {
@@ -51,7 +51,7 @@ export function Debts() {
         <StatTile
           label="مستحق لك (مدينون)"
           value={money(view.totals.receivable, 0)}
-          note={`${num(view.totals.receivableCount)} عميلاً`}
+          note={counted(view.totals.receivableCount, NOUNS.customer)}
           bg="var(--hs-danger-bg)"
           border="var(--hs-danger-border)"
           labelFg="var(--hs-danger-deep)"
@@ -60,7 +60,7 @@ export function Debts() {
         <StatTile
           label="مستحق عليك (دائنون)"
           value={money(view.totals.payable, 0)}
-          note={`${num(view.totals.payableCount)} موردين`}
+          note={counted(view.totals.payableCount, NOUNS.supplier)}
           bg="var(--hs-mint-bg)"
           border="var(--hs-mint-border)"
           labelFg="var(--hs-emerald-deep)"
@@ -69,7 +69,7 @@ export function Debts() {
         <StatTile
           label="متأخر السداد"
           value={money(view.totals.overdue, 0)}
-          note={`${num(view.totals.overdueCount)} عملاء`}
+          note={counted(view.totals.overdueCount, NOUNS.customer)}
           bg="var(--hs-warn-bg)"
           border="var(--hs-warn-border)"
           labelFg="var(--hs-warn-text)"
@@ -78,7 +78,7 @@ export function Debts() {
         <StatTile
           label="محصّل هذا الشهر"
           value={money(view.totals.collectedThisMonth, 0)}
-          note={`${num(view.totals.collectedCount)} سداداً`}
+          note={counted(view.totals.collectedCount, NOUNS.payment)}
           bg="var(--hs-surface)"
           border="var(--hs-border-card)"
           labelFg="var(--hs-text-muted)"
@@ -272,10 +272,10 @@ function DebtorProfile({
           </div>
           <div style={{ fontSize: 'var(--hs-fs-badge)', color: overdue ? 'var(--hs-danger-text)' : 'var(--hs-text-muted)', marginBlockStart: 4 }}>
             {overdue
-              ? `متأخر ${num(debtor.aging.daysOverdue)} يوماً عن تاريخ الاستحقاق`
+              ? `متأخر ${counted(debtor.aging.daysOverdue, NOUNS.day)} عن تاريخ الاستحقاق`
               : debtor.aging.status === 'paid'
                 ? 'لا يوجد رصيد مستحق'
-                : `يستحق خلال ${num(Math.abs(debtor.aging.daysOverdue))} يوماً`}
+                : `يستحق خلال ${counted(Math.abs(debtor.aging.daysOverdue), NOUNS.day)}`}
           </div>
         </div>
 

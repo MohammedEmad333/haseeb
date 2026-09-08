@@ -11,7 +11,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { SCREENS, MOBILE_TABS } from './screens';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { Meter, cx } from '@/ui/primitives';
-import { initial, num } from '@/lib/format';
+import { NOUNS, counted, initial, num } from '@/lib/format';
 import './shell.css';
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -87,13 +87,15 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
           className={cx('hs-syncpill', syncPending > 0 && 'hs-syncpill--queued')}
           title={
             syncPending > 0
-              ? `${num(syncPending)} عملية بانتظار المزامنة المشفّرة`
+              ? `${counted(syncPending, NOUNS.operation)} بانتظار المزامنة المشفّرة`
               : 'كل العمليات محفوظة محلياً'
           }
         >
           <span className="hs-syncpill__dot" aria-hidden />
           <span>
-            {syncPending > 0 ? `${num(syncPending)} بانتظار المزامنة` : 'قاعدة محلية · مزامنة مشفّرة'}
+            {syncPending > 0
+              ? `${counted(syncPending, NOUNS.operation)} بانتظار المزامنة`
+              : 'قاعدة محلية · مزامنة مشفّرة'}
           </span>
         </span>
 

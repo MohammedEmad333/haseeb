@@ -39,7 +39,8 @@ export interface CheckoutInput {
 
 export interface CheckoutResult {
   sale: Sale;
-  invoice: Invoice;
+  /** The invoice with its lines, ready to print without a second read. */
+  invoice: InvoiceWithLines;
   debtId: string | null;
 }
 
