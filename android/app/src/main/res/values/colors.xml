@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resources>
+    <!-- حسيب brand tokens, mirroring src/styles/tokens.css. -->
+    <color name="colorPrimary">#0F172A</color>
+    <color name="colorPrimaryDark">#0F172A</color>
+    <color name="colorAccent">#059669</color>
+</resources>

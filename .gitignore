@@ -6,6 +6,13 @@ coverage/
 .DS_Store
 .vite/
 src-tauri/target/
-android/
+
+# The Android project is committed: it is what CI builds, and it carries the
+# launcher icons, the manifest and the signing wiring. Capacitor's own
+# android/.gitignore excludes the generated parts — build outputs, the copied
+# web assets and local.properties.
 ios/
 *.log
+.env
+*.jks
+*.keystore

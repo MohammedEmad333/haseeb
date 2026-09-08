@@ -13,11 +13,13 @@
     "test:watch": "vitest",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "mobile:sync": "npm run build && cap sync",
-    "mobile:android": "npm run mobile:sync && cap open android",
-    "mobile:ios": "npm run mobile:sync && cap open ios"
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "npm run android:sync && cap open android",
+    "android:apk": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:icons": "capacitor-assets generate --android"
   },
   "dependencies": {
+    "@capacitor/core": "^7.6.9",
     "@fontsource/ibm-plex-mono": "^5.0.13",
     "@fontsource/ibm-plex-sans-arabic": "^5.0.20",
     "idb-keyval": "^6.2.1",
@@ -29,6 +31,9 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.6.9",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",

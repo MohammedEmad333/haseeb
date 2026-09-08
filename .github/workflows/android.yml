@@ -1,0 +1,149 @@
+name: بناء تطبيق أندرويد · Android APK
+
+# Every push builds an installable debug APK. A tag (v1.2.3) additionally
+# builds a signed release APK, when a keystore is configured in secrets, and
+# attaches both to a GitHub release.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+# The release job needs to create a release and upload assets to it.
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The APK is gated on the same checks as the web build. Shipping an
+      # installable artifact built from code that fails its own tests is worse
+      # than shipping nothing.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Install Android SDK packages
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Copy web assets into the native project
+        run: npx cap sync android
+
+      # versionName tracks package.json; versionCode must increase on every
+      # build Google Play would ever see, so it is derived from the run number.
+      - name: Resolve version
+        id: version
+        run: |
+          NAME=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "Building حسيب $NAME (code ${GITHUB_RUN_NUMBER})"
+
+      - name: Build debug APK
+        working-directory: android
+        env:
+          HASEEB_VERSION_NAME: ${{ steps.version.outputs.name }}
+          HASEEB_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew --no-daemon assembleDebug
+
+      # A release build is only produced when a keystore is actually
+      # configured; an unsigned release APK cannot be installed, so publishing
+      # one would be a trap rather than a convenience.
+      - name: Check for a signing keystore
+        id: signing
+        run: |
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret set — building the debug APK only."
+          fi
+
+      - name: Decode keystore
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/haseeb.jks"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.available == 'true'
+        working-directory: android
+        env:
+          HASEEB_VERSION_NAME: ${{ steps.version.outputs.name }}
+          HASEEB_VERSION_CODE: ${{ steps.version.outputs.code }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/haseeb.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Remove the keystore from the runner
+        if: always() && steps.signing.outputs.available == 'true'
+        run: rm -f "$RUNNER_TEMP/haseeb.jks"
+
+      - name: Name the artifacts
+        id: rename
+        run: |
+          mkdir -p artifacts
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+             "artifacts/haseeb-${{ steps.version.outputs.name }}-debug.apk"
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk \
+               "artifacts/haseeb-${{ steps.version.outputs.name }}-release.apk"
+          fi
+          ls -lh artifacts
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: haseeb-apk-${{ steps.version.outputs.name }}-${{ github.run_number }}
+          path: artifacts/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach APKs to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" artifacts/*.apk \
+            --title "حسيب ${{ steps.version.outputs.name }}" \
+            --generate-notes \
+            || gh release upload "${GITHUB_REF_NAME}" artifacts/*.apk --clobber

@@ -79,19 +79,71 @@ npm run desktop:dev
 npm run desktop:build   # .app / .msi / .AppImage
 ```
 
-### Mobile (Capacitor)
+### Android (Capacitor)
 
-Requires Android Studio or Xcode.
+**The easy way — GitHub Actions.** Every push builds an installable APK; no
+Android toolchain needed locally.
+
+1. Open the repository's **Actions** tab → **بناء تطبيق أندرويد · Android APK**.
+2. Pick the run for your commit (or press **Run workflow** to start one).
+3. Download the `haseeb-apk-…` artifact from the run summary and unzip it.
+4. Copy the `.apk` to a phone and open it. Android will ask you to allow
+   installing from this source — that prompt is normal for an APK that did not
+   come from Play.
+
+The workflow runs typecheck and the test suite before it builds, so an APK is
+only ever produced from code that passes its own checks.
+
+**Locally**, with Android Studio (or just the SDK) and JDK 21 installed:
 
 ```bash
-npm install @capacitor/core @capacitor/cli
-npx cap init حسيب com.haseeb.app --web-dir=dist
-npx cap add android      # and/or: npx cap add ios
-npm run mobile:android   # builds, syncs and opens the platform IDE
+npm run android:apk     # build + sync + assembleDebug
+npm run android:open    # build + sync + open in Android Studio
+npm run android:icons   # regenerate launcher icons from resources/
 ```
 
-`capacitor.config.json` is not committed because the platform folders it pairs
-with are generated, not source.
+The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`.
+
+The `android/` project **is committed** — it carries the manifest, the brand
+launcher icons and the signing wiring, and it is what CI builds. Capacitor's
+own `android/.gitignore` keeps the generated parts (build outputs, the copied
+web bundle, `local.properties`) out of the repository.
+
+#### Signed release builds
+
+The debug APK is signed with Android's throwaway debug key: fine for testing
+and sideloading, not for distribution. To get a signed release APK, create a
+keystore and add four repository secrets:
+
+```bash
+keytool -genkey -v -keystore haseeb.jks -keyalg RSA -keysize 2048 \
+        -validity 10000 -alias haseeb
+base64 -w0 haseeb.jks          # macOS: base64 -i haseeb.jks
+```
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the base64 output above |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | `haseeb` |
+| `ANDROID_KEY_PASSWORD` | the key password |
+
+With those set, every run also produces a signed release APK. Pushing a tag
+(`git tag v1.0.0 && git push --tags`) creates a GitHub release with both APKs
+attached.
+
+**Keep `haseeb.jks` safe and backed up.** Android identifies an app by its
+signing key: lose it and you cannot ship an update to anyone who already
+installed the app — they would have to uninstall and reinstall, losing their
+local database with it.
+
+`versionName` follows `package.json` (or the tag), and `versionCode` is the CI
+run number, so it always increases.
+
+### iOS
+
+Not set up. `npx cap add ios` plus a Mac with Xcode is the whole of it; the
+web bundle and the database layer are already platform-neutral.
 
 ## Where the data lives
 
