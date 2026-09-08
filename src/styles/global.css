@@ -1,0 +1,118 @@
+/* Local font faces — bundled with the app, never fetched at runtime, because
+   حسيب must render identically with networking disabled. */
+@import '@fontsource/ibm-plex-sans-arabic/arabic-300.css';
+@import '@fontsource/ibm-plex-sans-arabic/arabic-400.css';
+@import '@fontsource/ibm-plex-sans-arabic/arabic-500.css';
+@import '@fontsource/ibm-plex-sans-arabic/arabic-600.css';
+@import '@fontsource/ibm-plex-sans-arabic/arabic-700.css';
+@import '@fontsource/ibm-plex-sans-arabic/latin-300.css';
+@import '@fontsource/ibm-plex-sans-arabic/latin-400.css';
+@import '@fontsource/ibm-plex-sans-arabic/latin-500.css';
+@import '@fontsource/ibm-plex-sans-arabic/latin-600.css';
+@import '@fontsource/ibm-plex-sans-arabic/latin-700.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--hs-page);
+}
+
+body {
+  font-family: var(--hs-font-sans);
+  color: var(--hs-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: var(--hs-fs-body);
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+a {
+  color: var(--hs-emerald);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--hs-emerald-dark);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* Numerals, IDs, SKUs and timestamps are monospaced everywhere. Arabic-Indic
+   digits fall back to the sans face, which carries them. */
+.hs-mono {
+  font-family: var(--hs-font-mono), var(--hs-font-sans);
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Every interactive element gets a visible focus ring. */
+:focus-visible {
+  outline: 2px solid var(--hs-emerald);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.hs-on-dark :focus-visible {
+  outline-color: var(--hs-mint);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--hs-text-dim);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@keyframes hs-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes hs-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+/* Screen-reader-only text (used for table captions and live-region labels). */
+.hs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

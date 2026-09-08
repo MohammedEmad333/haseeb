@@ -1,0 +1,42 @@
+{
+  "name": "haseeb",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "حسيب — offline-first accounting & POS for small retail businesses (RTL Arabic)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:android": "npm run mobile:sync && cap open android",
+    "mobile:ios": "npm run mobile:sync && cap open ios"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.0.13",
+    "@fontsource/ibm-plex-sans-arabic": "^5.0.20",
+    "idb-keyval": "^6.2.1",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "sql.js": "^1.11.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@types/sql.js": "^1.4.9",
+    "@vitejs/plugin-react": "^4.3.2",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.9",
+    "vitest": "^2.1.3"
+  }
+}

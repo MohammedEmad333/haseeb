@@ -1,0 +1,140 @@
+/* ==========================================================================
+   حسيب — design tokens
+   The single source of truth for colour, type, spacing, radius and shadow.
+   Every value here comes from the design spec; nothing else in the app may
+   introduce a raw hex value.
+   ========================================================================== */
+
+:root {
+  /* ---- colour -------------------------------------------------------- */
+  --hs-ink: #0f172a;
+  --hs-ink-2: #1e293b;
+  --hs-brand-navy: #1e3a67;
+
+  --hs-emerald: #059669;
+  --hs-emerald-dark: #047857;
+  --hs-emerald-deep: #065f46;
+  --hs-mint: #10b981;
+  --hs-mint-light: #34d399;
+  --hs-mint-bg: #ecfdf5;
+  --hs-mint-border: #a7f3d0;
+  --hs-mint-text: #047857;
+  --hs-on-mint: #04241a;
+  --hs-teal: #0ea5a0;
+
+  --hs-page: #eef2f6;
+  --hs-surface: #ffffff;
+  --hs-surface-alt: #f8fafc;
+  --hs-border: #e2e8f0;
+  --hs-border-card: #e7ecf2;
+  --hs-divider: #f1f5f9;
+  --hs-divider-2: #e8eef4;
+
+  --hs-text: #0f172a;
+  --hs-text-muted: #64748b;
+  --hs-text-subtle: #94a3b8;
+  --hs-text-slate: #475569;
+  --hs-text-slate-2: #334155;
+  --hs-text-dim: #cbd5e1;
+
+  --hs-warn-bg: #fffbeb;
+  --hs-warn-border: #fde68a;
+  --hs-warn-text: #92400e;
+  --hs-warn-solid: #f59e0b;
+  --hs-warn-strong: #b45309;
+
+  --hs-danger-bg: #fef2f2;
+  --hs-danger-border: #fecaca;
+  --hs-danger-text: #b91c1c;
+  --hs-danger-solid: #dc2626;
+  --hs-danger-deep: #991b1b;
+
+  --hs-nav-active: #eaf2ee;
+  --hs-hover: #eef2f6;
+
+  /* on-dark surfaces */
+  --hs-on-dark: #f8fafc;
+  --hs-on-dark-muted: #cbd5e1;
+  --hs-on-dark-subtle: #94a3b8;
+  --hs-glass: rgba(248, 250, 252, 0.07);
+  --hs-glass-strong: rgba(248, 250, 252, 0.14);
+  --hs-glass-border: rgba(248, 250, 252, 0.12);
+  --hs-mint-glass: rgba(16, 185, 129, 0.14);
+  --hs-mint-glass-border: rgba(16, 185, 129, 0.3);
+
+  /* ---- type ---------------------------------------------------------- */
+  --hs-font-sans: 'IBM Plex Sans Arabic', 'Segoe UI', system-ui, sans-serif;
+  --hs-font-mono: 'IBM Plex Mono', ui-monospace, 'Courier New', monospace;
+
+  --hs-fs-hero: 30px;
+  --hs-fs-page: 23px;
+  --hs-fs-kpi: 25px;
+  --hs-fs-section: 15px;
+  --hs-fs-section-sm: 14.5px;
+  --hs-fs-body: 13px;
+  --hs-fs-body-lg: 13.5px;
+  --hs-fs-cell: 12.5px;
+  --hs-fs-meta: 11.5px;
+  --hs-fs-label: 12px;
+  --hs-fs-badge: 11px;
+  --hs-fs-micro: 10.5px;
+
+  /* ---- spacing (the spec's 3/5/7/9/11/13/14/16/18/20/22/26/32 scale) -- */
+  --hs-sp-1: 3px;
+  --hs-sp-2: 5px;
+  --hs-sp-3: 7px;
+  --hs-sp-4: 9px;
+  --hs-sp-5: 11px;
+  --hs-sp-6: 13px;
+  --hs-sp-7: 14px;
+  --hs-sp-8: 16px;
+  --hs-sp-9: 18px;
+  --hs-sp-10: 20px;
+  --hs-sp-11: 22px;
+  --hs-sp-12: 26px;
+  --hs-sp-13: 32px;
+  --hs-gap: 14px;
+
+  /* ---- radius -------------------------------------------------------- */
+  --hs-r-badge: 8px;
+  --hs-r-control: 12px;
+  --hs-r-control-sm: 10px;
+  --hs-r-button: 13px;
+  --hs-r-card: 16px;
+  --hs-r-tile: 14px;
+  --hs-r-panel: 18px;
+  --hs-r-hero: 22px;
+  --hs-r-pill: 999px;
+
+  /* ---- shadow -------------------------------------------------------- */
+  --hs-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 26px -16px rgba(15, 23, 42, 0.18);
+  --hs-shadow-raised: 0 18px 40px -26px rgba(15, 23, 42, 0.4);
+  --hs-shadow-modal: 0 1px 2px rgba(15, 23, 42, 0.04), 0 24px 50px -32px rgba(15, 23, 42, 0.45);
+  --hs-shadow-dark-btn: 0 8px 20px -10px rgba(15, 23, 42, 0.7);
+  --hs-shadow-green-btn: 0 8px 18px -10px rgba(5, 150, 105, 0.9);
+  --hs-shadow-fab: 0 16px 30px -12px rgba(5, 150, 105, 0.95);
+  --hs-shadow-topbar: 0 10px 30px -18px rgba(15, 23, 42, 0.8);
+  --hs-shadow-cta: 0 14px 30px -14px rgba(15, 23, 42, 0.8);
+
+  /* ---- motion -------------------------------------------------------- */
+  --hs-motion: 160ms ease;
+
+  /* ---- layout -------------------------------------------------------- */
+  --hs-sidebar-w: 228px;
+  --hs-topbar-h: 64px;
+  --hs-tabbar-h: 62px;
+  --hs-touch: 44px;
+}
+
+/* Honour the OS reduced-motion preference: the sync pulse and the hover
+   lifts are decorative, never load-bearing. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
