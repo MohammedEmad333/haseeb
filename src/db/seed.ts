@@ -287,6 +287,7 @@ export function seed(db: HaseebDatabase): void {
       entity: 'database',
       action: 'seed',
       actor: 'النظام',
+      localOnly: true,
       description: 'تهيئة قاعدة البيانات المحلية ببيانات المنشأة الافتتاحية',
     },
     (d) => {
@@ -667,6 +668,7 @@ function seedAuditHistory(db: HaseebDatabase): void {
       entity: 'audit_log',
       action: 'seed_history',
       actor: 'النظام',
+      localOnly: true,
       description: 'استيراد سجل التدقيق الافتتاحي',
     },
     (d) => {
@@ -688,6 +690,7 @@ export function resetToSeed(db: HaseebDatabase): void {
       entity: 'database',
       action: 'reset',
       actor: 'المدير',
+      localOnly: true,
       description: 'إعادة ضبط قاعدة البيانات المحلية إلى البيانات الافتتاحية',
     },
     (d) => {

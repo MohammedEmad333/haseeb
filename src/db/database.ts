@@ -35,6 +35,13 @@ export interface AuditIntent {
   description: string;
   actor?: string;
   payload?: unknown;
+  /**
+   * Skip the sync queue for changes that are local initialisation rather than
+   * a business event — seeding and resetting. They still land in the audit
+   * log; they just have nothing to push to a peer that would build its own
+   * seed anyway.
+   */
+  localOnly?: boolean;
 }
 
 export interface OpenOptions {
@@ -141,7 +148,7 @@ export class HaseebDatabase {
     try {
       const result = work(this);
       this.#recordAudit(audit);
-      this.#enqueueSync(audit);
+      if (!audit.localOnly) this.#enqueueSync(audit);
       this.#sqlite.run('COMMIT');
       this.#scheduleSave();
       this.#notify();

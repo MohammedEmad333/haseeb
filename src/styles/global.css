@@ -14,6 +14,7 @@
 @import '@fontsource/ibm-plex-mono/latin-500.css';
 
 @import './tokens.css';
+@import './print.css';
 
 * {
   box-sizing: border-box;
@@ -60,6 +61,10 @@ textarea {
 .hs-mono {
   font-family: var(--hs-font-mono), var(--hs-font-sans);
   font-feature-settings: 'tnum' 1;
+  /* Isolate every numeric run: a bare amount next to Arabic text is a
+     bidi-neutral sequence, and without isolation the browser is free to
+     reorder a total's digits against its currency or its sign. */
+  unicode-bidi: isolate;
 }
 
 /* Every interactive element gets a visible focus ring. */

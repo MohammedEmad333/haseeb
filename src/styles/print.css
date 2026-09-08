@@ -1,0 +1,51 @@
+/* The tax invoice is the print artifact: everything else comes off the page. */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    background: #fff;
+  }
+
+  .hs-no-print {
+    display: none !important;
+  }
+
+  /* When an invoice card is on the page, print only it. */
+  body:has(.hs-print-target) .hs-shell > *:not(.hs-body),
+  body:has(.hs-print-target) .hs-sidebar,
+  body:has(.hs-print-target) .hs-topbar {
+    display: none !important;
+  }
+
+  body:has(.hs-print-target) .hs-main > *:not(:has(.hs-print-target)) {
+    display: none !important;
+  }
+
+  .hs-print-target {
+    box-shadow: none !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    break-inside: avoid;
+  }
+
+  /* Tables printed from the finance screen keep their rules but lose the
+     hover tint and the sticky header, which do not exist on paper. */
+  .hs-table thead th {
+    position: static;
+    background: #f8fafc !important;
+  }
+  .hs-table tbody tr:hover {
+    background: transparent !important;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
