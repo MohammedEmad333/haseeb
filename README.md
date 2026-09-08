@@ -38,12 +38,12 @@ rest on the device.
   uses — the Flutter SDK was not available in the build environment, and this
   stack reaches the same three targets (web, desktop via Tauri, mobile via
   Capacitor) from one codebase.
-- **SQLite via `sql.js`** — a real SQLite compiled to WebAssembly, so the same
-  engine, SQL and schema run in a browser, a Tauri WebView and a Capacitor
-  WebView. Swapping in a native driver (`better-sqlite3`, `op-sqlite`) means
-  writing one sibling to `src/db/engine.ts`; nothing above it knows sql.js
-  exists.
-- **AES-256-GCM** over the whole database image, via WebCrypto.
+- **Two SQLite drivers behind one port.** On a phone the app uses the
+  platform's own SQLite (`@capacitor-community/sqlite`) with **SQLCipher**;
+  everywhere else — browser, desktop shell, tests — it uses a real SQLite
+  compiled to WebAssembly (`sql.js`) sealed with **AES-256-GCM**. Both
+  implement the same async `SqlDriver` interface and run the same SQL, so the
+  repositories above cannot tell which one they are talking to.
 - **No UI kit.** Every colour, size, radius and shadow comes from
   `src/styles/tokens.css`; there is no framework theme to fight.
 - **Fonts bundled locally** (`@fontsource/ibm-plex-sans-arabic`,
@@ -147,32 +147,41 @@ web bundle and the database layer are already platform-neutral.
 
 ## Where the data lives
 
-| Platform | Location |
-|---|---|
-| Web / Capacitor WebView / Tauri WebView | IndexedDB database `haseeb`, object store `files`, keys `haseeb.db`, `haseeb.devicekey`, `haseeb.salt` |
-| Tests | In-memory (`MemoryStore`), discarded per test |
+| Platform | Driver | Location |
+|---|---|---|
+| Android (and iOS) | `capacitor` | `/data/data/com.haseeb.app/databases/haseebSQLite.db`, encrypted by SQLCipher with a secret in the platform secure store |
+| Web / Tauri WebView | `sqljs` | IndexedDB database `haseeb`, object store `files`, keys `haseeb.db`, `haseeb.devicekey`, `haseeb.salt` |
+| Tests | `sqljs` | In-memory, discarded per test |
 
-The whole SQLite image is sealed with AES-256-GCM before it is written, and only
-ever decrypted into memory. Writes are debounced 400 ms and flushed on
-`pagehide`, so a killed tab loses at most the last few hundred milliseconds.
+The active driver is shown in the app: الإدارة العامة → قاعدة البيانات المحلية.
+
+**On a phone**, writes are incremental — a sale writes the pages it touched,
+and the file is already durable when the call returns.
+
+**On the web**, the whole SQLite image is sealed with AES-256-GCM before it is
+written and only ever decrypted into memory. Writes are debounced 400 ms and
+flushed on `pagehide`, so a killed tab loses at most a few hundred
+milliseconds. This is the driver that gets slow as the database grows, which
+is why the native one exists.
 
 The exact location is shown in the app: the storage card at the bottom of the
 sidebar, and the «قاعدة البيانات المحلية» panel on الإدارة العامة.
 
 ### Key management, honestly
 
-Two modes:
+Two modes, on both drivers:
 
-- **Device key (default).** A random 256-bit key is generated on first run and
-  stored alongside the database. This protects the file *at rest* — a copied
-  database, a stolen backup, another app reading shared storage — but **not**
-  an attacker who already controls the running device, since the key is there
-  too. This is the same trade-off SQLCipher-with-a-keystore-key makes.
-- **Owner passphrase.** `HaseebDatabase.open({ passphrase })` derives the key
-  with PBKDF2-SHA256 (210,000 rounds) and stores only the salt. Nothing on the
-  device can open the file without the passphrase.
+- **Device key (default).** A random 256-bit key is generated on first run —
+  handed to the platform secure store on a phone, written beside the database
+  on the web. This protects the file *at rest*: a copied database, a stolen
+  backup, another app reading shared storage. It does **not** protect against
+  an attacker who already controls the running device, since the key is
+  reachable there too.
+- **Owner passphrase.** Opening with `{ passphrase }` keys SQLCipher directly
+  on a phone, and derives an AES key with PBKDF2-SHA256 (210,000 rounds) on the
+  web. Nothing on the device can open the file without it.
 
-Passphrase mode is wired through the database layer and covered by tests; the
+Passphrase mode is wired through the data layer and covered by tests; the
 onboarding flow currently creates a device-key database. Prompting for and
 caching a passphrase is a UX decision left to the product owner.
 
@@ -228,12 +237,15 @@ The figures that *are* self-consistent land exactly, and are asserted in
 ```
 src/
   domain/      money · tax · wholesale · debts · inventory   (pure, no I/O)
-  db/          schema.sql · engine · crypto · storage · database
+  db/          schema.sql · database (async) · crypto · storage
+    drivers/     driver (the port) · sqljs · capacitor · index (selection)
     repositories/  products · sales · customers · operations · analytics
   lib/         format (ar-EG, numbering-system aware) · reminders · zatca · report
+  state/       HaseebProvider · useQuery
   ui/          primitives · composites · ui.css
   shell/       AppShell · screens registry · shell.css
   screens/     one file per route
+  dev/         selftest (the on-device database check CI runs)
   styles/      tokens.css · global.css · print.css
 tests/         domain suites + database integration + encryption
 ```
@@ -246,9 +258,9 @@ Three rules hold this together:
    `audit_log` row and a `sync_queue` row in one transaction. A change cannot
    commit without its ledger entry.
 3. **The database is the state.** There is no cache to invalidate: a commit
-   bumps a revision, and every screen recomputes from the same rows. A sale
-   rung up on the POS moves the dashboard, the debt book and the warehouse at
-   once.
+   bumps a revision, `useQuery` re-runs, and every screen recomputes from the
+   same rows. A sale rung up on the POS moves the dashboard, the debt book and
+   the warehouse at once.
 
 ### Optional encrypted sync
 
@@ -313,6 +325,12 @@ Chromium at 1440px and 390px:
   invoice; recording a payment against a balance; receiving stock and seeing it
   on the movement timeline; a sale surviving a reload; and the mobile drawer
   and FAB.
+- **The native driver on a real emulator.** `src/dev/selftest.ts` opens
+  whichever driver the platform chose, checks the seeded figures, writes a sale
+  through a transaction, proves an over-stock sale rolls back, and reopens the
+  database. CI boots an x86_64 emulator, installs the APK and reads the verdict
+  from logcat — and fails the job if the app falls back to the WebAssembly
+  driver on a device. Run it in a browser with `?selftest=1`.
 - Accessibility: every interactive element has an accessible name, every table
   a caption, one `h1` per screen, a visible focus ring on all 12 sampled tab
   stops, and all touch targets ≥44px under `pointer: coarse`.
