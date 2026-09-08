@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, RangeSlider } from '@/ui/primitives';
 import { AutoGrid, DataTable, InitialTile, PageHeader, type Column } from '@/ui/composites';
 import type { Customer, Product } from '@/db/types';
@@ -48,29 +49,23 @@ const STARTER: readonly [string, number][] = [
 ];
 
 export function Wholesale() {
-  const { customers, products, sales, profile, revision, db } = useHaseeb();
+  const { customers, products, sales, profile, db } = useHaseeb();
   const [useCustom, setUseCustom] = useState(false);
   const [discount, setDiscount] = useState(12);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [lines, setLines] = useState<BuilderLine[] | null>(null);
   const [issued, setIssued] = useState<string | null>(null);
 
-  const catalogue = useMemo(
-    () => products?.list() ?? [],
-     
-    [products, revision],
-  );
-
-  const wholesalers = useMemo(
-    () => customers?.list('wholesale') ?? [],
-     
-    [customers, revision],
+  const { data: catalogue } = useQuery(async () => (products ? products.list() : []), [products]);
+  const { data: wholesalers } = useQuery(
+    async () => (customers ? customers.list('wholesale') : []),
+    [customers],
   );
 
   const builderLines = useMemo<BuilderLine[]>(() => {
     if (lines) return lines;
     return STARTER.flatMap(([sku, qty]) => {
-      const product = catalogue.find((p) => p.sku === sku);
+      const product = catalogue?.find((p) => p.sku === sku);
       if (!product || product.qtyOnHand === 0) return [];
       return [{ productId: product.id, qty: Math.min(qty, product.qtyOnHand) }];
     });
@@ -81,7 +76,7 @@ export function Wholesale() {
 
   const priced = useMemo(() => {
     const rows = builderLines.flatMap((line) => {
-      const product = catalogue.find((p) => p.id === line.productId);
+      const product = catalogue?.find((p) => p.id === line.productId);
       if (!product) return [];
       const result = priceWholesaleLine({
         unitPrice: wholesaleUnitPrice(product),
@@ -94,7 +89,7 @@ export function Wholesale() {
     return { rows, totals: computeTotals({ subtotal, vatRate }) };
   }, [builderLines, catalogue, useCustom, discount, vatRate]);
 
-  const selected = wholesalers.find((c) => c.id === customerId) ?? null;
+  const selected = wholesalers?.find((c) => c.id === customerId) ?? null;
 
   const columns: Column<(typeof priced.rows)[number]>[] = [
     { key: 'name', header: 'الصنف', width: '2fr', render: (r) => r.product.name },
@@ -144,9 +139,9 @@ export function Wholesale() {
     },
   ];
 
-  const issue = (): void => {
+  const issue = async (): Promise<void> => {
     if (!sales || priced.rows.length === 0) return;
-    const result = sales.checkout({
+    const result = await sales.checkout({
       lines: priced.rows.map((r) => ({
         productId: r.product.id,
         name: r.product.name,
@@ -162,7 +157,7 @@ export function Wholesale() {
       customerName: selected?.name,
       vatRate,
     });
-    void db?.flush();
+    await db?.flush();
     setIssued(result.invoice.invoiceNo);
     setLines([]);
   };
@@ -201,9 +196,9 @@ export function Wholesale() {
         }}
       >
         <Card panel style={{ minWidth: 0 }}>
-          <CardHead title="عملاء الجملة" sub={counted(wholesalers.length, NOUNS.customer)} />
+          <CardHead title="عملاء الجملة" sub={counted(wholesalers?.length ?? 0, NOUNS.customer)} />
           <CardBody style={{ paddingInline: 0 }}>
-            {wholesalers.length === 0 ? (
+            {!wholesalers || wholesalers.length === 0 ? (
               <EmptyState title="لا يوجد عملاء جملة" body="أضف عميل جملة لتظهر شريحته وحدّه الأدنى هنا." />
             ) : (
               <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
@@ -308,7 +303,7 @@ export function Wholesale() {
           title="بناء فاتورة الجملة"
           sub={selected ? `العميل: ${selected.name}` : 'اختر عميل جملة من القائمة أعلاه'}
           actions={
-            <Button variant="primary" disabled={blocked} onClick={issue}>
+            <Button variant="primary" disabled={blocked} onClick={() => void issue()}>
               إصدار الفاتورة
             </Button>
           }

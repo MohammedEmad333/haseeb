@@ -7,8 +7,9 @@
  * work without the app itself having any network access.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Tabs } from '@/ui/primitives';
 import { AutoGrid, InitialTile, PageHeader, StatTile, Timeline } from '@/ui/composites';
 import type { DebtorSummary } from '@/db/repositories/customers';
@@ -26,17 +27,18 @@ const STATUS_TINT: Record<DebtStatus, { bg: string; fg: string; amount: string }
 type Direction = 'receivable' | 'payable';
 
 export function Debts() {
-  const { customers, profile, revision, db } = useHaseeb();
+  const { customers, profile, db } = useHaseeb();
   const [direction, setDirection] = useState<Direction>('receivable');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paying, setPaying] = useState<DebtorSummary | null>(null);
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!customers) return null;
-    const list = customers.debtors(direction).filter((d) => d.outstanding > 0 || d.aging.status === 'paid');
-    return { totals: customers.debtTotals(), list };
-     
-  }, [customers, direction, revision]);
+    const list = (await customers.debtors(direction)).filter(
+      (d) => d.outstanding > 0 || d.aging.status === 'paid',
+    );
+    return { totals: await customers.debtTotals(), list };
+  }, [customers, direction]);
 
   if (!view) return null;
 
@@ -202,9 +204,9 @@ export function Debts() {
         <PaymentDialog
           debtor={paying}
           onClose={() => setPaying(null)}
-          onSubmit={(amount, method) => {
-            customers!.recordPayment({ customerId: paying.id, amount, method });
-            void db?.flush();
+          onSubmit={async (amount, method) => {
+            await customers!.recordPayment({ customerId: paying.id, amount, method });
+            await db?.flush();
             setPaying(null);
           }}
         />
@@ -224,11 +226,10 @@ function DebtorProfile({
   unit: string;
   onRecordPayment: () => void;
 }) {
-  const { customers, profile, revision } = useHaseeb();
-  const ledger = useMemo(
-    () => customers?.ledgerFor(debtor.id) ?? [],
-     
-    [customers, debtor.id, revision],
+  const { customers, profile } = useHaseeb();
+  const { data: ledger } = useQuery(
+    async () => (customers ? customers.ledgerFor(debtor.id) : []),
+    [customers, debtor.id],
   );
 
   const overdue = debtor.aging.status === 'overdue';
@@ -282,7 +283,7 @@ function DebtorProfile({
         <h3 style={{ fontSize: 'var(--hs-fs-section-sm)', fontWeight: 600, margin: 'var(--hs-sp-10) 0 0' }}>
           سجل السدادات
         </h3>
-        {ledger.length === 0 ? (
+        {!ledger || ledger.length === 0 ? (
           <EmptyState title="لا توجد حركات" body="ستظهر هنا كل الديون والسدادات بترتيب زمني." />
         ) : (
           <Timeline
@@ -351,7 +352,10 @@ function PaymentDialog({
 }: {
   debtor: DebtorSummary;
   onClose: () => void;
-  onSubmit: (amountPiasters: number, method: 'cash' | 'wallet' | 'card' | 'transfer') => void;
+  onSubmit: (
+    amountPiasters: number,
+    method: 'cash' | 'wallet' | 'card' | 'transfer',
+  ) => void | Promise<void>;
 }) {
   const [amount, setAmount] = useState((debtor.outstanding / 100).toFixed(2));
   const [method, setMethod] = useState<'cash' | 'wallet' | 'card' | 'transfer'>('cash');
@@ -441,7 +445,7 @@ function PaymentDialog({
               variant="action"
               style={{ flex: 1 }}
               disabled={invalid}
-              onClick={() => onSubmit(piasters, method)}
+              onClick={() => void onSubmit(piasters, method)}
             >
               تسجيل السداد
             </Button>

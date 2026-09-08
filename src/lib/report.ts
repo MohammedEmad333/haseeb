@@ -16,16 +16,16 @@ const INVOICE_STATUS_LABEL: Record<string, string> = {
   overdue: 'متأخرة',
 };
 
-export function buildReportCsv(
+export async function buildReportCsv(
   sales: SalesRepository,
   ops: OperationsRepository,
   analytics: AnalyticsRepository,
   from: Date,
   to: Date,
-): string {
-  const invoices = sales.invoices({ from: from.toISOString(), to: to.toISOString() });
-  const summary = analytics.financeSummary(from.toISOString(), to.toISOString());
-  const profile = ops.profile();
+): Promise<string> {
+  const invoices = await sales.invoices({ from: from.toISOString(), to: to.toISOString() });
+  const summary = await analytics.financeSummary(from.toISOString(), to.toISOString());
+  const profile = await ops.profile();
 
   const rows: string[][] = [
     ['تقرير المبيعات والأرباح'],
@@ -54,17 +54,17 @@ export function buildReportCsv(
   return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
 }
 
-export function exportReportCsv(
+export async function exportReportCsv(
   sales: SalesRepository,
   ops: OperationsRepository,
   analytics: AnalyticsRepository,
-): void {
+): Promise<void> {
   const to = new Date();
   const from = new Date(to.getTime());
   from.setDate(from.getDate() - 6);
   from.setHours(0, 0, 0, 0);
 
-  const csv = buildReportCsv(sales, ops, analytics, from, to);
+  const csv = await buildReportCsv(sales, ops, analytics, from, to);
   // A BOM so Excel opens the Arabic columns in UTF-8 rather than mojibake.
   download(`haseeb-report-${to.toISOString().slice(0, 10)}.csv`, `﻿${csv}`, 'text/csv;charset=utf-8');
 }

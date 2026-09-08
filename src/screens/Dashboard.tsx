@@ -6,9 +6,9 @@
  * the dashboard cannot drift from the books it summarises.
  */
 
-import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Button, Card, CardBody, CardHead } from '@/ui/primitives';
 import { AutoGrid, KpiTile, PageHeader } from '@/ui/composites';
 import { SalesProfitChart } from '@/screens/parts/SalesProfitChart';
@@ -17,21 +17,19 @@ import { NOUNS, counted, dateLong, moneyRounded, signedPercent } from '@/lib/for
 import { exportReportCsv } from '@/lib/report';
 
 export function Dashboard() {
-  const { analytics, profile, revision, ops, sales } = useHaseeb();
+  const { analytics, profile, ops, sales } = useHaseeb();
   const navigate = useNavigate();
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!analytics) return null;
     const asOf = new Date();
     return {
-      kpis: analytics.kpis(asOf),
-      series: analytics.weekSeries(asOf),
-      channels: analytics.channelShares(asOf),
-      weekSales: analytics.weekTotals(asOf).sales,
+      kpis: await analytics.kpis(asOf),
+      series: await analytics.weekSeries(asOf),
+      channels: await analytics.channelShares(asOf),
+      weekSales: (await analytics.weekTotals(asOf)).sales,
     };
-    // `revision` is the database's change signal.
-     
-  }, [analytics, revision]);
+  }, [analytics]);
 
   if (!view) return null;
 
@@ -44,7 +42,9 @@ export function Dashboard() {
         sub={`ملخّص الأداء المالي · الأسبوع الحالي حتى ${dateLong(new Date().toISOString())}`}
         actions={
           <>
-            <Button onClick={() => exportReportCsv(sales!, ops!, analytics!)}>تصدير التقرير</Button>
+            <Button onClick={() => void exportReportCsv(sales!, ops!, analytics!)}>
+              تصدير التقرير
+            </Button>
             <Button variant="primary" onClick={() => navigate('/pos')}>
               + بيع جديد
             </Button>

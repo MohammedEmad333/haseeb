@@ -25,6 +25,8 @@ export type DbStatus = 'opening' | 'ready' | 'error';
 interface HaseebContextValue extends Partial<Haseeb> {
   status: DbStatus;
   error: Error | null;
+  /** Which driver is in use: 'sqljs' on web and under test, 'capacitor' on a phone. */
+  engine: string;
   /** Bumped on every commit; screens read it to recompute derived views. */
   revision: number;
   profile: BusinessProfile | null;
@@ -34,9 +36,15 @@ interface HaseebContextValue extends Partial<Haseeb> {
   search: string;
   setSearch: (value: string) => void;
   numbering: NumberingSystem;
-  setNumbering: (system: NumberingSystem) => void;
-  reset: () => void;
+  setNumbering: (system: NumberingSystem) => Promise<void>;
+  reset: () => Promise<void>;
   retry: () => void;
+}
+
+interface HeaderFigures {
+  profile: BusinessProfile | null;
+  syncPending: number;
+  storageUsedBytes: number;
 }
 
 const HaseebContext = createContext<HaseebContextValue | null>(null);
@@ -48,6 +56,11 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
   const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [header, setHeader] = useState<HeaderFigures>({
+    profile: null,
+    syncPending: 0,
+    storageUsedBytes: 0,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -55,15 +68,17 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     openHaseeb()
-      .then((h) => {
+      .then(async (h) => {
         if (cancelled) {
-          h.db.close();
+          await h.db.close();
           return;
         }
-        // Apply the stored digit preference before the first paint, so the
-        // numbers never flip in front of the user on load.
-        const stored = h.ops.preference('numbering');
+        // Apply the stored digit preference and read the header figures before
+        // the first paint, so nothing flips in front of the user on load.
+        const stored = await h.ops.preference('numbering');
         if (stored === 'arab' || stored === 'latn') setNumberingSystem(stored);
+        setHeader(await readHeader(h));
+        if (cancelled) return;
         setHandle(h);
         setStatus('ready');
       })
@@ -97,41 +112,44 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('pagehide', flush);
   }, [handle]);
 
-  const reset = useCallback(() => {
+  const reset = useCallback(async () => {
     if (!handle) return;
-    resetToSeed(handle.db);
-    void handle.db.flush();
+    await resetToSeed(handle.db);
+    await handle.db.flush();
   }, [handle]);
 
   const retry = useCallback(() => setAttempt((a) => a + 1), []);
 
   const setNumbering = useCallback(
-    (system: NumberingSystem) => {
+    async (system: NumberingSystem) => {
       setNumberingSystem(system);
-      handle?.ops.setPreference(
+      await handle?.ops.setPreference(
         'numbering',
         system,
         `تغيير عرض الأرقام إلى ${system === 'arab' ? 'العربية' : 'الإنجليزية'}`,
       );
-      void handle?.db.flush();
+      await handle?.db.flush();
       // The formatter is module state, so nothing re-renders on its own.
       setRevision((r) => r + 1);
     },
     [handle],
   );
 
-  const value = useMemo<HaseebContextValue>(() => {
-    const derived =
-      handle && status === 'ready'
-        ? {
-            profile: handle.ops.profile(),
-            syncPending: handle.ops.pendingSyncCount(),
-            storageUsedBytes: estimateSize(handle),
-            storageLocation: handle.db.storageLocation,
-          }
-        : { profile: null, syncPending: 0, storageUsedBytes: 0, storageLocation: '' };
+  // The header figures come from the database, so they are read
+  // asynchronously and refreshed on every commit rather than computed inline.
+  useEffect(() => {
+    if (!handle || status !== 'ready') return;
+    let live = true;
+    void readHeader(handle).then((next) => {
+      if (live) setHeader(next);
+    });
+    return () => {
+      live = false;
+    };
+  }, [handle, status, revision]);
 
-    return {
+  const value = useMemo<HaseebContextValue>(
+    () => ({
       ...(handle ?? {}),
       status,
       error,
@@ -142,11 +160,12 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
       setNumbering,
       reset,
       retry,
-      ...derived,
-    };
-    // `revision` is a deliberate dependency: it is the signal that the
-    // derived reads above are stale.
-  }, [handle, status, error, revision, search, reset, retry, setNumbering]);
+      engine: handle?.db.engine ?? '',
+      storageLocation: handle?.db.storageLocation ?? '',
+      ...header,
+    }),
+    [handle, status, error, revision, search, reset, retry, setNumbering, header],
+  );
 
   return <HaseebContext.Provider value={value}>{children}</HaseebContext.Provider>;
 }
@@ -174,17 +193,29 @@ export function useRepositories(): Haseeb {
  * Rough on-disk size of the local database, for the storage card. Counting
  * rows is far cheaper than exporting the image on every render.
  */
-function estimateSize(handle: Haseeb): number {
-  const rows =
-    handle.db.count('sales') +
-    handle.db.count('sale_lines') +
-    handle.db.count('invoices') +
-    handle.db.count('invoice_lines') +
-    handle.db.count('stock_movements') +
-    handle.db.count('payments') +
-    handle.db.count('debts') +
-    handle.db.count('audit_log') +
-    handle.db.count('sync_queue');
+async function estimateSize(handle: Haseeb): Promise<number> {
+  const tables = [
+    'sales',
+    'sale_lines',
+    'invoices',
+    'invoice_lines',
+    'stock_movements',
+    'payments',
+    'debts',
+    'audit_log',
+    'sync_queue',
+  ];
+  let rows = 0;
+  for (const table of tables) rows += await handle.db.count(table);
   // SQLite page overhead plus roughly a quarter kilobyte per row.
   return 64 * 1024 + rows * 256;
+}
+
+/** The figures the shell shows on every screen. */
+async function readHeader(handle: Haseeb): Promise<HeaderFigures> {
+  return {
+    profile: await handle.ops.profile(),
+    syncPending: await handle.ops.pendingSyncCount(),
+    storageUsedBytes: await estimateSize(handle),
+  };
 }

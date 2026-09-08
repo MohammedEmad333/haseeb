@@ -19,6 +19,7 @@
     "android:icons": "capacitor-assets generate --android && node scripts/android-splash.mjs"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^7.0.3",
     "@capacitor/core": "^7.6.9",
     "@fontsource/ibm-plex-mono": "^5.0.13",
     "@fontsource/ibm-plex-sans-arabic": "^5.0.20",

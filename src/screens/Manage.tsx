@@ -3,32 +3,31 @@
  * audit trail, plus the local-database controls (backup, sync queue, reset).
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Meter, Toggle } from '@/ui/primitives';
 import { AutoGrid, InitialTile, PageHeader, Timeline } from '@/ui/composites';
 import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
 
 export function Manage() {
-  const { analytics, ops, profile, revision, db, reset, storageLocation, syncPending, numbering, setNumbering } =
+  const { analytics, ops, profile, db, reset, storageLocation, syncPending, numbering, setNumbering, engine } =
     useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
   const navigate = useNavigate();
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!analytics || !ops) return null;
-    const expenses = ops.expenses();
-    const total = expenses.reduce((t, e) => t + e.amount, 0);
+    const expenses = await ops.expenses();
     return {
-      health: analytics.financialHealth(),
+      health: await analytics.financialHealth(),
       expenses,
-      totalExpenses: total,
-      staff: ops.staff(),
-      audit: ops.audit(8),
+      totalExpenses: expenses.reduce((t, e) => t + e.amount, 0),
+      staff: await ops.staff(),
+      audit: await ops.audit(8),
     };
-     
-  }, [analytics, ops, revision]);
+  }, [analytics, ops]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? 'ج.م';
@@ -167,9 +166,9 @@ export function Manage() {
                   <Toggle
                     checked={member.active}
                     label={`صلاحيات ${member.name}`}
-                    onChange={(next) => {
-                      ops!.setStaffActive(member.id, next);
-                      void db?.flush();
+                    onChange={async (next) => {
+                      await ops!.setStaffActive(member.id, next);
+                      await db?.flush();
                     }}
                   />
                 </li>
@@ -209,7 +208,7 @@ export function Manage() {
                 type="button"
                 className="hs-chip"
                 aria-pressed={numbering === 'latn'}
-                onClick={() => setNumbering('latn')}
+                onClick={() => void setNumbering('latn')}
               >
                 إنجليزية · 1234
               </button>
@@ -217,7 +216,7 @@ export function Manage() {
                 type="button"
                 className="hs-chip"
                 aria-pressed={numbering === 'arab'}
-                onClick={() => setNumbering('arab')}
+                onClick={() => void setNumbering('arab')}
               >
                 عربية · ١٢٣٤
               </button>
@@ -227,7 +226,7 @@ export function Manage() {
       </Card>
 
       <Card panel>
-        <CardHead title="قاعدة البيانات المحلية" sub={storageLocation} />
+        <CardHead title="قاعدة البيانات المحلية" sub={`${storageLocation} · محرّك ${engine}`} />
         <CardBody>
           <p style={{ margin: 0, fontSize: 'var(--hs-fs-body)', color: 'var(--hs-text-muted)', lineHeight: 1.8 }}>
             البيانات محفوظة على هذا الجهاز ومشفّرة بمعيار AES-256-GCM. المزامنة اختيارية: العمليات
@@ -238,9 +237,9 @@ export function Manage() {
 
           <div className="hs-row" style={{ gap: 'var(--hs-sp-4)', marginBlockStart: 'var(--hs-sp-8)', flexWrap: 'wrap' }}>
             <Button
-              onClick={() => {
-                ops!.recordBackup();
-                void db?.flush();
+              onClick={async () => {
+                await ops!.recordBackup();
+                await db?.flush();
               }}
             >
               نسخة احتياطية الآن
@@ -250,8 +249,8 @@ export function Manage() {
               <>
                 <Button
                   variant="action"
-                  onClick={() => {
-                    reset();
+                  onClick={async () => {
+                    await reset();
                     setConfirmReset(false);
                   }}
                 >

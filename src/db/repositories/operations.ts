@@ -16,8 +16,8 @@ export class OperationsRepository {
 
   // ---- business profile ----------------------------------------------
 
-  profile(): BusinessProfile | null {
-    const row = this.db.get('SELECT * FROM business_profile WHERE id = 1');
+  async profile(): Promise<BusinessProfile | null> {
+    const row = await this.db.get('SELECT * FROM business_profile WHERE id = 1');
     if (!row) return null;
     return {
       name: String(row.name),
@@ -32,9 +32,9 @@ export class OperationsRepository {
     };
   }
 
-  saveProfile(profile: BusinessProfile): void {
-    const existing = this.profile();
-    this.db.mutate(
+  async saveProfile(profile: BusinessProfile): Promise<void> {
+    const existing = await this.profile();
+    await this.db.mutate(
       {
         entity: 'business_profile',
         entityId: '1',
@@ -44,8 +44,8 @@ export class OperationsRepository {
           : `إنشاء المنشأة «${profile.name}» وقاعدة البيانات المحلية`,
         payload: profile,
       },
-      (db) =>
-        db.run(
+      (tx) =>
+        tx.execute(
           `INSERT INTO business_profile (id, name, business_type, currency_code, currency_label,
              phone, commercial_reg, tax_number, vat_rate, onboarded_at, created_at)
            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -77,17 +77,17 @@ export class OperationsRepository {
 
   // ---- expenses -------------------------------------------------------
 
-  expenses(period?: string): Expense[] {
+  async expenses(period?: string): Promise<Expense[]> {
     const rows = period
-      ? this.db.all('SELECT * FROM expenses WHERE period = ? ORDER BY amount_piasters DESC', [
+      ? await this.db.all('SELECT * FROM expenses WHERE period = ? ORDER BY amount_piasters DESC', [
           period,
         ])
-      : this.db.all('SELECT * FROM expenses ORDER BY amount_piasters DESC');
+      : await this.db.all('SELECT * FROM expenses ORDER BY amount_piasters DESC');
     return rows.map(toExpense);
   }
 
-  totalExpenses(period?: string): number {
-    return this.expenses(period).reduce((t, e) => t + e.amount, 0);
+  async totalExpenses(period?: string): Promise<number> {
+    return (await this.expenses(period)).reduce((t, e) => t + e.amount, 0);
   }
 
   /**
@@ -98,13 +98,13 @@ export class OperationsRepository {
    * perfectly profitable week. Costs are pro-rated across the days they cover
    * instead, which is what makes «صافي الربح» mean anything on a weekly view.
    */
-  expensesForRange(fromIso: string, toIso: string): number {
+  async expensesForRange(fromIso: string, toIso: string): Promise<number> {
     const from = new Date(fromIso);
     const to = new Date(toIso);
     const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 
     let total = 0;
-    for (const expense of this.expenses()) {
+    for (const expense of await this.expenses()) {
       const daysInPeriod = daysInMonth(expense.period);
       total += Math.round((expense.amount * Math.min(days, daysInPeriod)) / daysInPeriod);
     }
@@ -113,22 +113,29 @@ export class OperationsRepository {
 
   // ---- staff & permissions --------------------------------------------
 
-  staff(): StaffMember[] {
-    return this.db.all('SELECT * FROM staff ORDER BY created_at').map((r) => ({
-      id: String(r.id),
-      name: String(r.name),
-      role: String(r.role),
-      scope: String(r.scope),
-      active: Number(r.active) === 1,
-      abilities: this.db
-        .all('SELECT ability FROM permissions WHERE staff_id = ? AND granted = 1', [String(r.id)])
-        .map((p) => String(p.ability)),
-    }));
+  async staff(): Promise<StaffMember[]> {
+    const rows = await this.db.all('SELECT * FROM staff ORDER BY created_at');
+    const members: StaffMember[] = [];
+    for (const r of rows) {
+      const abilities = await this.db.all(
+        'SELECT ability FROM permissions WHERE staff_id = ? AND granted = 1',
+        [String(r.id)],
+      );
+      members.push({
+        id: String(r.id),
+        name: String(r.name),
+        role: String(r.role),
+        scope: String(r.scope),
+        active: Number(r.active) === 1,
+        abilities: abilities.map((p) => String(p.ability)),
+      });
+    }
+    return members;
   }
 
-  setStaffActive(id: string, active: boolean): void {
-    const member = this.db.get('SELECT name FROM staff WHERE id = ?', [id]);
-    this.db.mutate(
+  async setStaffActive(id: string, active: boolean): Promise<void> {
+    const member = await this.db.get('SELECT name FROM staff WHERE id = ?', [id]);
+    await this.db.mutate(
       {
         entity: 'staff',
         entityId: id,
@@ -138,22 +145,24 @@ export class OperationsRepository {
           : `إيقاف صلاحيات المستخدم «${member?.name ?? id}»`,
         payload: { active },
       },
-      (db) => db.run('UPDATE staff SET active = ? WHERE id = ?', [active ? 1 : 0, id]),
+      (tx) => tx.execute('UPDATE staff SET active = ? WHERE id = ?', [active ? 1 : 0, id]),
     );
   }
 
   // ---- orders ----------------------------------------------------------
 
-  orders(direction?: OrderDirection): Order[] {
+  async orders(direction?: OrderDirection): Promise<Order[]> {
     const rows = direction
-      ? this.db.all('SELECT * FROM orders WHERE direction = ? ORDER BY placed_at DESC', [direction])
-      : this.db.all('SELECT * FROM orders ORDER BY placed_at DESC');
+      ? await this.db.all('SELECT * FROM orders WHERE direction = ? ORDER BY placed_at DESC', [
+          direction,
+        ])
+      : await this.db.all('SELECT * FROM orders ORDER BY placed_at DESC');
     return rows.map(toOrder);
   }
 
-  setOrderStatus(id: string, status: OrderStatus): void {
-    const order = this.db.get('SELECT order_no FROM orders WHERE id = ?', [id]);
-    this.db.mutate(
+  async setOrderStatus(id: string, status: OrderStatus): Promise<void> {
+    const order = await this.db.get('SELECT order_no FROM orders WHERE id = ?', [id]);
+    await this.db.mutate(
       {
         entity: 'order',
         entityId: id,
@@ -161,24 +170,26 @@ export class OperationsRepository {
         description: `تحديث حالة الطلب ${order?.order_no ?? id} إلى «${ORDER_STATUS_LABEL[status]}»`,
         payload: { status },
       },
-      (db) => db.run('UPDATE orders SET status = ? WHERE id = ?', [status, id]),
+      (tx) => tx.execute('UPDATE orders SET status = ? WHERE id = ?', [status, id]),
     );
   }
 
   // ---- audit & sync ----------------------------------------------------
 
-  audit(limit = 20): AuditEntry[] {
-    return this.db
-      .all('SELECT * FROM audit_log ORDER BY occurred_at DESC, rowid DESC LIMIT ?', [limit])
-      .map((r) => ({
+  async audit(limit = 20): Promise<AuditEntry[]> {
+    const rows = await this.db.all(
+      'SELECT * FROM audit_log ORDER BY occurred_at DESC, rowid DESC LIMIT ?',
+      [limit],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         entity: String(r.entity),
         entityId: String(r.entity_id),
         action: String(r.action),
-        description: String(r.description),
-        actor: String(r.actor),
-        occurredAt: String(r.occurred_at),
-      }));
+      description: String(r.description),
+      actor: String(r.actor),
+      occurredAt: String(r.occurred_at),
+    }));
   }
 
   /**
@@ -186,36 +197,40 @@ export class OperationsRepository {
    * app blocks on this queue draining — it is a record of what *would* be
    * pushed if the owner ever turns sync on.
    */
-  pendingSync(limit = 50): SyncQueueEntry[] {
-    return this.db
-      .all('SELECT * FROM sync_queue WHERE synced_at IS NULL ORDER BY queued_at LIMIT ?', [limit])
-      .map((r) => ({
+  async pendingSync(limit = 50): Promise<SyncQueueEntry[]> {
+    const rows = await this.db.all(
+      'SELECT * FROM sync_queue WHERE synced_at IS NULL ORDER BY queued_at LIMIT ?',
+      [limit],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         entity: String(r.entity),
         entityId: String(r.entity_id),
-        action: String(r.action),
-        queuedAt: String(r.queued_at),
-        syncedAt: r.synced_at === null ? null : String(r.synced_at),
-      }));
+      action: String(r.action),
+      queuedAt: String(r.queued_at),
+      syncedAt: r.synced_at === null ? null : String(r.synced_at),
+    }));
   }
 
-  pendingSyncCount(): number {
-    return Number(this.db.value('SELECT COUNT(*) FROM sync_queue WHERE synced_at IS NULL') ?? 0);
+  async pendingSyncCount(): Promise<number> {
+    return Number(
+      (await this.db.value('SELECT COUNT(*) FROM sync_queue WHERE synced_at IS NULL')) ?? 0,
+    );
   }
 
-  markSynced(ids: readonly string[]): void {
+  async markSynced(ids: readonly string[]): Promise<void> {
     if (ids.length === 0) return;
     const at = nowIso();
-    this.db.mutate(
+    await this.db.mutate(
       {
         entity: 'sync_queue',
         action: 'reconcile',
         description: `مزامنة ${ids.length} عملية مع النسخة المشفّرة`,
         actor: 'النظام',
       },
-      (db) => {
+      async (tx) => {
         for (const id of ids) {
-          db.run('UPDATE sync_queue SET synced_at = ? WHERE id = ?', [at, id]);
+          await tx.execute('UPDATE sync_queue SET synced_at = ? WHERE id = ?', [at, id]);
         }
       },
     );
@@ -224,13 +239,15 @@ export class OperationsRepository {
   // ---- preferences -----------------------------------------------------
 
   /** A user preference, or null when it has never been set. */
-  preference(key: string): string | null {
-    const value = this.db.value<string>('SELECT value FROM meta WHERE key = ?', [`pref.${key}`]);
+  async preference(key: string): Promise<string | null> {
+    const value = await this.db.value<string>('SELECT value FROM meta WHERE key = ?', [
+      `pref.${key}`,
+    ]);
     return value ?? null;
   }
 
-  setPreference(key: string, value: string, description: string): void {
-    this.db.mutate(
+  async setPreference(key: string, value: string, description: string): Promise<void> {
+    await this.db.mutate(
       {
         entity: 'preference',
         entityId: key,
@@ -241,14 +258,17 @@ export class OperationsRepository {
         // push to a peer that may be set up differently.
         localOnly: true,
       },
-      (db) =>
-        db.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [`pref.${key}`, value]),
+      (tx) =>
+        tx.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [
+          `pref.${key}`,
+          value,
+        ]),
     );
   }
 
   /** Record an encrypted local backup in the audit trail. */
-  recordBackup(): void {
-    this.db.mutate(
+  async recordBackup(): Promise<void> {
+    await this.db.mutate(
       {
         entity: 'database',
         entityId: newId(),
@@ -256,7 +276,7 @@ export class OperationsRepository {
         actor: 'النظام',
         description: 'نسخة احتياطية مشفّرة للقاعدة المحلية',
       },
-      () => undefined,
+      async () => undefined,
     );
   }
 }

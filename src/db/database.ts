@@ -1,32 +1,15 @@
 /**
- * The local database handle: an open SQLite image plus the encryption and
- * persistence around it.
+ * The local database handle.
  *
- * Reads go straight to SQLite. Writes run inside a transaction, append an
- * `audit_log` and a `sync_queue` row, and schedule a debounced re-seal of
- * the image to storage — a save per keystroke would be pointless churn, and
- * a save only on close would lose work to a killed tab.
+ * Reads go straight to the driver. Writes run inside a transaction that also
+ * appends an `audit_log` and a `sync_queue` row, so a mutation can never be
+ * committed without its ledger entry — that is the whole promise of
+ * «كل عملية تُسجَّل محلياً».
  */
 
-import schemaSql from './schema.sql?raw';
-import { loadSqlJs, type SqlJsDatabase } from './engine';
-import { createBlobStore, type BlobStore } from './storage';
-import {
-  generateRawKey,
-  generateSalt,
-  importRawKey,
-  deriveKeyFromPassphrase,
-  open as openSealed,
-  seal,
-} from './crypto';
+import { openDriver, type OpenDriverOptions, type Row, type SqlDriver, type SqlTx, type SqlValue } from './drivers';
 
-const DB_KEY = 'haseeb.db';
-const DEVICE_KEY_KEY = 'haseeb.devicekey';
-const SALT_KEY = 'haseeb.salt';
-const SAVE_DEBOUNCE_MS = 400;
-
-export type SqlValue = string | number | Uint8Array | null;
-export type Row = Record<string, SqlValue>;
+export type { Row, SqlValue } from './drivers';
 
 export interface AuditIntent {
   entity: string;
@@ -37,191 +20,78 @@ export interface AuditIntent {
   payload?: unknown;
   /**
    * Skip the sync queue for changes that are local initialisation rather than
-   * a business event — seeding and resetting. They still land in the audit
-   * log; they just have nothing to push to a peer that would build its own
-   * seed anyway.
+   * a business event — seeding, resetting, a display preference. They still
+   * land in the audit log; they just have nothing to push to a peer.
    */
   localOnly?: boolean;
 }
 
-export interface OpenOptions {
-  /** Owner passphrase. When omitted, a random device key is used instead. */
-  passphrase?: string;
-  store?: BlobStore;
-  /** Skip persistence entirely — used by tests. */
-  ephemeral?: boolean;
-}
+export type OpenOptions = OpenDriverOptions;
 
 export class HaseebDatabase {
-  #sqlite: SqlJsDatabase;
-  #key: CryptoKey;
-  #store: BlobStore;
-  #ephemeral: boolean;
-  #saveTimer: ReturnType<typeof setTimeout> | null = null;
-  #pendingSave: Promise<void> | null = null;
+  #driver: SqlDriver;
   #listeners = new Set<() => void>();
 
-  private constructor(
-    sqlite: SqlJsDatabase,
-    key: CryptoKey,
-    store: BlobStore,
-    ephemeral: boolean,
-  ) {
-    this.#sqlite = sqlite;
-    this.#key = key;
-    this.#store = store;
-    this.#ephemeral = ephemeral;
+  private constructor(driver: SqlDriver) {
+    this.#driver = driver;
   }
 
   static async open(options: OpenOptions = {}): Promise<HaseebDatabase> {
-    const store = options.store ?? createBlobStore();
-    const ephemeral = options.ephemeral ?? false;
-    const SQL = await loadSqlJs();
-
-    const key = await resolveKey(store, options.passphrase, ephemeral);
-    const sealed = ephemeral ? null : await store.read(DB_KEY);
-
-    let sqlite: SqlJsDatabase;
-    if (sealed) {
-      sqlite = new SQL.Database(await openSealed(key, sealed));
-    } else {
-      sqlite = new SQL.Database();
-    }
-    // Applying the schema on every open keeps an existing file forward
-    // compatible; every statement is CREATE ... IF NOT EXISTS.
-    sqlite.run(schemaSql);
-
-    const db = new HaseebDatabase(sqlite, key, store, ephemeral);
-    if (!sealed) await db.flush();
-    return db;
+    return new HaseebDatabase(await openDriver(options));
   }
 
   get storageLocation(): string {
-    return this.#ephemeral ? 'ذاكرة مؤقتة (بدون حفظ)' : this.#store.describe();
+    return this.#driver.location;
   }
 
-  /** Whether the file already carried data when it was opened. */
-  isEmpty(): boolean {
-    return this.count('products') === 0 && this.count('customers') === 0;
+  /** 'sqljs' on web and under test, 'capacitor' on a phone. */
+  get engine(): string {
+    return this.#driver.kind;
+  }
+
+  /** Whether the database already carried data when it was opened. */
+  async isEmpty(): Promise<boolean> {
+    return (await this.count('products')) === 0 && (await this.count('customers')) === 0;
   }
 
   // ---- reads ---------------------------------------------------------
 
-  all<T extends Row = Row>(sql: string, params: SqlValue[] = []): T[] {
-    const statement = this.#sqlite.prepare(sql);
-    try {
-      statement.bind(params);
-      const rows: T[] = [];
-      while (statement.step()) rows.push(statement.getAsObject() as T);
-      return rows;
-    } finally {
-      statement.free();
-    }
+  async all<T extends Row = Row>(sql: string, params: SqlValue[] = []): Promise<T[]> {
+    return this.#driver.query<T>(sql, params);
   }
 
-  get<T extends Row = Row>(sql: string, params: SqlValue[] = []): T | null {
-    return this.all<T>(sql, params)[0] ?? null;
+  async get<T extends Row = Row>(sql: string, params: SqlValue[] = []): Promise<T | null> {
+    return (await this.all<T>(sql, params))[0] ?? null;
   }
 
   /** First column of the first row — for `SELECT COUNT(*)` and friends. */
-  value<T extends SqlValue = SqlValue>(sql: string, params: SqlValue[] = []): T | null {
-    const row = this.get(sql, params);
+  async value<T extends SqlValue = SqlValue>(sql: string, params: SqlValue[] = []): Promise<T | null> {
+    const row = await this.get(sql, params);
     if (!row) return null;
     return Object.values(row)[0] as T;
   }
 
-  count(table: string): number {
-    return Number(this.value(`SELECT COUNT(*) FROM ${table}`) ?? 0);
+  async count(table: string): Promise<number> {
+    return Number((await this.value(`SELECT COUNT(*) FROM ${table}`)) ?? 0);
   }
 
   // ---- writes --------------------------------------------------------
 
-  /**
-   * Run `work` in a transaction and record it.
-   *
-   * The audit row is written inside the same transaction as the change, so a
-   * mutation can never be committed without its ledger entry — that is the
-   * whole promise of «كل عملية تُسجَّل محلياً».
-   */
-  mutate<T>(audit: AuditIntent, work: (db: HaseebDatabase) => T): T {
-    this.#sqlite.run('BEGIN');
-    try {
-      const result = work(this);
-      this.#recordAudit(audit);
-      if (!audit.localOnly) this.#enqueueSync(audit);
-      this.#sqlite.run('COMMIT');
-      this.#scheduleSave();
-      this.#notify();
-      return result;
-    } catch (error) {
-      this.#sqlite.run('ROLLBACK');
-      throw error;
-    }
-  }
-
-  /** Raw statement execution, only valid inside `mutate`. */
-  run(sql: string, params: SqlValue[] = []): void {
-    this.#sqlite.run(sql, params);
-  }
-
-  #recordAudit(audit: AuditIntent): void {
-    this.#sqlite.run(
-      `INSERT INTO audit_log (id, entity, entity_id, action, description, actor, payload, occurred_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        newId(),
-        audit.entity,
-        audit.entityId ?? '',
-        audit.action,
-        audit.description,
-        audit.actor ?? 'المدير',
-        audit.payload === undefined ? '' : JSON.stringify(audit.payload),
-        nowIso(),
-      ],
-    );
-  }
-
-  #enqueueSync(audit: AuditIntent): void {
-    // Optional encrypted sync is a queue plus a reconcile: nothing here
-    // touches the network, and the app is fully usable if it never does.
-    this.#sqlite.run(
-      `INSERT INTO sync_queue (id, entity, entity_id, action, payload, queued_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-      [
-        newId(),
-        audit.entity,
-        audit.entityId ?? '',
-        audit.action,
-        audit.payload === undefined ? '' : JSON.stringify(audit.payload),
-        nowIso(),
-      ],
-    );
-  }
-
-  // ---- persistence ---------------------------------------------------
-
-  #scheduleSave(): void {
-    if (this.#ephemeral) return;
-    if (this.#saveTimer) clearTimeout(this.#saveTimer);
-    this.#saveTimer = setTimeout(() => {
-      this.#saveTimer = null;
-      void this.flush();
-    }, SAVE_DEBOUNCE_MS);
-  }
-
-  /** Seal and write the current image immediately. */
-  async flush(): Promise<void> {
-    if (this.#ephemeral) return;
-    if (this.#saveTimer) {
-      clearTimeout(this.#saveTimer);
-      this.#saveTimer = null;
-    }
-    // Serialise saves so two flushes cannot interleave writes to one key.
-    this.#pendingSave = (this.#pendingSave ?? Promise.resolve()).then(async () => {
-      const bytes = this.#sqlite.export();
-      await this.#store.write(DB_KEY, await seal(this.#key, bytes));
+  /** Run `work` in a transaction and record it. */
+  async mutate<T>(audit: AuditIntent, work: (tx: SqlTx) => Promise<T>): Promise<T> {
+    const result = await this.#driver.transaction(async (tx) => {
+      const value = await work(tx);
+      await recordAudit(tx, audit);
+      if (!audit.localOnly) await enqueueSync(tx, audit);
+      return value;
     });
-    return this.#pendingSave;
+    this.#notify();
+    return result;
+  }
+
+  /** Persist everything written so far. */
+  async flush(): Promise<void> {
+    return this.#driver.flush();
   }
 
   // ---- change notification -------------------------------------------
@@ -243,39 +113,47 @@ export class HaseebDatabase {
   // ---- lifecycle -----------------------------------------------------
 
   async destroy(): Promise<void> {
-    this.#sqlite.close();
-    if (!this.#ephemeral) {
-      await this.#store.remove(DB_KEY);
-    }
+    await this.#driver.wipe();
+    await this.#driver.close();
   }
 
-  close(): void {
-    this.#sqlite.close();
+  async close(): Promise<void> {
+    await this.#driver.close();
   }
 }
 
-async function resolveKey(
-  store: BlobStore,
-  passphrase: string | undefined,
-  ephemeral: boolean,
-): Promise<CryptoKey> {
-  if (passphrase) {
-    let salt = ephemeral ? null : await store.read(SALT_KEY);
-    if (!salt) {
-      salt = generateSalt();
-      if (!ephemeral) await store.write(SALT_KEY, salt);
-    }
-    return deriveKeyFromPassphrase(passphrase, salt);
-  }
+async function recordAudit(tx: SqlTx, audit: AuditIntent): Promise<void> {
+  await tx.execute(
+    `INSERT INTO audit_log (id, entity, entity_id, action, description, actor, payload, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      newId(),
+      audit.entity,
+      audit.entityId ?? '',
+      audit.action,
+      audit.description,
+      audit.actor ?? 'المدير',
+      audit.payload === undefined ? '' : JSON.stringify(audit.payload),
+      nowIso(),
+    ],
+  );
+}
 
-  if (ephemeral) return importRawKey(generateRawKey());
-
-  let raw = await store.read(DEVICE_KEY_KEY);
-  if (!raw) {
-    raw = generateRawKey();
-    await store.write(DEVICE_KEY_KEY, raw);
-  }
-  return importRawKey(raw);
+async function enqueueSync(tx: SqlTx, audit: AuditIntent): Promise<void> {
+  // Optional encrypted sync is a queue plus a reconcile: nothing here touches
+  // the network, and the app is fully usable if it never does.
+  await tx.execute(
+    `INSERT INTO sync_queue (id, entity, entity_id, action, payload, queued_at, synced_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+    [
+      newId(),
+      audit.entity,
+      audit.entityId ?? '',
+      audit.action,
+      audit.payload === undefined ? '' : JSON.stringify(audit.payload),
+      nowIso(),
+    ],
+  );
 }
 
 /** UUID v4 where available, with a random fallback for older WebViews. */

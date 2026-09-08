@@ -233,7 +233,7 @@ export function Toggle({
   disabled,
 }: {
   checked: boolean;
-  onChange: (next: boolean) => void;
+  onChange: (next: boolean) => void | Promise<void>;
   label: string;
   disabled?: boolean;
 }) {
@@ -245,7 +245,7 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       className="hs-toggle"
-      onClick={() => onChange(!checked)}
+      onClick={() => void onChange(!checked)}
     />
   );
 }

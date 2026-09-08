@@ -14,9 +14,9 @@ describe('encryption at rest', () => {
   it('writes a sealed image that contains no plaintext', async () => {
     const store = new MemoryStore();
     const db = await HaseebDatabase.open({ store, passphrase: 'كلمة-سر-قوية' });
-    seed(db);
+    await seed(db);
     await db.flush();
-    db.close();
+    await db.close();
 
     const bytes = await store.read('haseeb.db');
     expect(bytes).not.toBeNull();
@@ -32,25 +32,24 @@ describe('encryption at rest', () => {
   it('reopens with the right passphrase and reads every row back', async () => {
     const store = new MemoryStore();
     const first = await HaseebDatabase.open({ store, passphrase: 'كلمة-سر-قوية' });
-    seed(first);
-    const productCount = first.count('products');
+    await seed(first);
+    const productCount = await first.count('products');
     await first.flush();
-    first.close();
+    await first.close();
 
     const second = await HaseebDatabase.open({ store, passphrase: 'كلمة-سر-قوية' });
-    expect(second.count('products')).toBe(productCount);
-    expect(second.get('SELECT name FROM business_profile WHERE id = 1')?.name).toBe(
-      'مؤسسة النور التجارية',
-    );
-    second.close();
+    expect(await second.count('products')).toBe(productCount);
+    const row = await second.get('SELECT name FROM business_profile WHERE id = 1');
+    expect(row?.name).toBe('مؤسسة النور التجارية');
+    await second.close();
   });
 
   it('refuses a wrong passphrase', async () => {
     const store = new MemoryStore();
     const db = await HaseebDatabase.open({ store, passphrase: 'الصحيحة' });
-    seed(db);
+    await seed(db);
     await db.flush();
-    db.close();
+    await db.close();
 
     await expect(HaseebDatabase.open({ store, passphrase: 'الخاطئة' })).rejects.toThrow();
   });
@@ -58,9 +57,9 @@ describe('encryption at rest', () => {
   it('detects a tampered file rather than opening it', async () => {
     const store = new MemoryStore();
     const db = await HaseebDatabase.open({ store, passphrase: 'كلمة-سر' });
-    seed(db);
+    await seed(db);
     await db.flush();
-    db.close();
+    await db.close();
 
     const bytes = (await store.read('haseeb.db'))!;
     // Flip a bit deep inside the ciphertext: GCM authentication must catch it.
@@ -73,17 +72,17 @@ describe('encryption at rest', () => {
   it('persists a sale made after the seed', async () => {
     const store = new MemoryStore();
     const h = await openHaseeb({ store });
-    const product = h.products.list()[0];
-    const { invoice } = h.sales.checkout({
+    const product = (await h.products.list())[0];
+    const { invoice } = await h.sales.checkout({
       lines: [{ productId: product.id, name: product.name, qty: 1, unit: product.price, cost: product.cost }],
       paymentMethod: 'cash',
     });
     await h.db.flush();
-    h.db.close();
+    await h.db.close();
 
     const reopened = await openHaseeb({ store });
-    expect(reopened.sales.invoiceByNo(invoice.invoiceNo)).not.toBeNull();
-    reopened.db.close();
+    expect(await reopened.sales.invoiceByNo(invoice.invoiceNo)).not.toBeNull();
+    await reopened.db.close();
   });
 });
 

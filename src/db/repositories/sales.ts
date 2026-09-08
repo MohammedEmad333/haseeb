@@ -95,8 +95,8 @@ export class SalesRepository {
   }
 
   /** Next invoice number in the INV-#### series. */
-  nextInvoiceNo(): string {
-    const last = this.db.value<string>(
+  async nextInvoiceNo(): Promise<string> {
+    const last = await this.db.value<string>(
       `SELECT invoice_no FROM invoices WHERE invoice_no LIKE 'INV-%' ORDER BY invoice_no DESC LIMIT 1`,
     );
     const n = last ? Number(last.slice(4)) + 1 : 2482;
@@ -112,10 +112,10 @@ export class SalesRepository {
    * can leave stock decremented without an invoice is worse than one that
    * fails loudly.
    */
-  checkout(input: CheckoutInput): CheckoutResult {
+  async checkout(input: CheckoutInput): Promise<CheckoutResult> {
     if (input.lines.length === 0) throw new Error('cannot close an empty sale');
 
-    const vatRate = input.vatRate ?? this.#vatRate();
+    const vatRate = input.vatRate ?? (await this.#vatRate());
     const subtotal = input.lines.reduce(
       (total, l) => total + (l.qty * l.unit - (l.discount ?? 0)),
       0,
@@ -128,7 +128,7 @@ export class SalesRepository {
 
     const saleId = newId();
     const invoiceId = newId();
-    const invoiceNo = this.nextInvoiceNo();
+    const invoiceNo = await this.nextInvoiceNo();
     const at = nowIso();
     const onCredit = input.paymentMethod === 'credit';
     const debtId = onCredit ? newId() : null;
@@ -136,15 +136,31 @@ export class SalesRepository {
 
     // Validate stock before opening the transaction so the error message
     // names the product rather than surfacing as a rollback.
+    // Snapshot the stock once, before the transaction, so the error message
+    // can name the product rather than surfacing as a bare rollback — and so
+    // the decrement below does not re-read a row it is about to change.
+    const onHand = new Map<string, number>();
+    const names = new Map<string, string>();
     for (const line of input.lines) {
-      const product = this.#products.byId(line.productId);
-      if (!product) throw new Error(`unknown product ${line.productId}`);
-      if (product.qtyOnHand < line.qty) {
-        throw new Error(`الكمية المتاحة من «${product.name}» ${product.qtyOnHand} فقط`);
+      if (!onHand.has(line.productId)) {
+        const product = await this.#products.byId(line.productId);
+        if (!product) throw new Error(`unknown product ${line.productId}`);
+        onHand.set(line.productId, product.qtyOnHand);
+        names.set(line.productId, product.name);
       }
+      // Draw the running balance down as we go, so two lines of the same
+      // product are checked against what is left after the first, not against
+      // the opening quantity twice over.
+      const remaining = onHand.get(line.productId)! - line.qty;
+      if (remaining < 0) {
+        throw new Error(
+          `الكمية المتاحة من «${names.get(line.productId)}» ${onHand.get(line.productId)} فقط`,
+        );
+      }
+      onHand.set(line.productId, remaining);
     }
 
-    this.db.mutate(
+    await this.db.mutate(
       {
         entity: 'sale',
         entityId: saleId,
@@ -153,8 +169,8 @@ export class SalesRepository {
         description: `بيع ${input.lines.length} أصناف — فاتورة ${invoiceNo} بمبلغ ${money(totals.total)}`,
         payload: { invoiceNo, total: totals.total, paymentMethod: input.paymentMethod },
       },
-      (db) => {
-        db.run(
+      async (tx) => {
+        await tx.execute(
           `INSERT INTO sales (id, invoice_no, customer_id, channel, payment_method,
              subtotal_piasters, discount_piasters, vat_piasters, total_piasters,
              profit_piasters, vat_rate, occurred_at)
@@ -176,7 +192,7 @@ export class SalesRepository {
         );
 
         for (const line of input.lines) {
-          db.run(
+          await tx.execute(
             `INSERT INTO sale_lines (id, sale_id, product_id, name_snapshot, qty,
                unit_piasters, cost_piasters, discount_percent, discount_piasters, total_piasters)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -194,11 +210,14 @@ export class SalesRepository {
             ],
           );
 
-          // Stock decrement lives in the same transaction as the sale.
-          const product = this.#products.byId(line.productId)!;
-          const qtyAfter = product.qtyOnHand - line.qty;
-          db.run('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, line.productId]);
-          db.run(
+          // Stock decrement lives in the same transaction as the sale. The
+          // map already holds the post-sale balance from the check above.
+          const qtyAfter = onHand.get(line.productId)!;
+          await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [
+            qtyAfter,
+            line.productId,
+          ]);
+          await tx.execute(
             `INSERT INTO stock_movements
                (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
              VALUES (?, ?, 'sale', ?, ?, ?, ?, ?, ?)`,
@@ -215,7 +234,7 @@ export class SalesRepository {
           );
         }
 
-        db.run(
+        await tx.execute(
           `INSERT INTO invoices (id, invoice_no, sale_id, customer_id, kind, status,
              issued_at, due_at, subtotal_piasters, discount_piasters, vat_piasters,
              total_piasters, profit_piasters, qr_payload)
@@ -239,7 +258,7 @@ export class SalesRepository {
         );
 
         for (const line of input.lines) {
-          db.run(
+          await tx.execute(
             `INSERT INTO invoice_lines (id, invoice_id, product_id, name_snapshot, qty,
                unit_piasters, total_piasters)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -259,7 +278,7 @@ export class SalesRepository {
           if (!input.customerId) {
             throw new Error('تسجيل الدين يحتاج إلى اختيار عميل');
           }
-          db.run(
+          await tx.execute(
             `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
                opened_at, due_at, note)
              VALUES (?, ?, ?, 'receivable', ?, ?, ?, ?)`,
@@ -270,18 +289,18 @@ export class SalesRepository {
     );
 
     return {
-      sale: this.saleById(saleId)!,
-      invoice: this.invoiceById(invoiceId)!,
+      sale: (await this.saleById(saleId))!,
+      invoice: (await this.invoiceById(invoiceId))!,
       debtId,
     };
   }
 
-  #vatRate(): number {
-    return Number(this.db.value('SELECT vat_rate FROM business_profile WHERE id = 1') ?? 14);
+  async #vatRate(): Promise<number> {
+    return Number((await this.db.value('SELECT vat_rate FROM business_profile WHERE id = 1')) ?? 14);
   }
 
-  saleById(id: string): Sale | null {
-    const row = this.db.get(
+  async saleById(id: string): Promise<Sale | null> {
+    const row = await this.db.get(
       `SELECT s.*, c.name AS customer_name FROM sales s
        LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?`,
       [id],
@@ -289,27 +308,27 @@ export class SalesRepository {
     return row ? toSale(row) : null;
   }
 
-  recentSales(limit = 20): Sale[] {
-    return this.db
-      .all(
+  async recentSales(limit = 20): Promise<Sale[]> {
+    const rows = await this.db.all(
         `SELECT s.*, c.name AS customer_name FROM sales s
          LEFT JOIN customers c ON c.id = s.customer_id
          ORDER BY s.occurred_at DESC LIMIT ?`,
-        [limit],
-      )
-      .map(toSale);
+      [limit],
+    );
+    return rows.map(toSale);
   }
 
   /** The POS «سجل البيع المباشر» — one row per sold line, newest first. */
-  recentSaleLines(limit = 12): Array<SaleLine & { occurredAt: string; paymentMethod: PaymentMethod }> {
-    return this.db
-      .all(
+  async recentSaleLines(
+    limit = 12,
+  ): Promise<Array<SaleLine & { occurredAt: string; paymentMethod: PaymentMethod }>> {
+    const rows = await this.db.all(
         `SELECT l.*, s.occurred_at, s.payment_method FROM sale_lines l
          JOIN sales s ON s.id = l.sale_id
          ORDER BY s.occurred_at DESC, l.rowid DESC LIMIT ?`,
-        [limit],
-      )
-      .map((r) => ({
+      [limit],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         productId: String(r.product_id),
         name: String(r.name_snapshot),
@@ -326,32 +345,36 @@ export class SalesRepository {
 
   // ---- invoices ------------------------------------------------------
 
-  invoiceById(id: string): InvoiceWithLines | null {
-    const row = this.db.get(`${INVOICE_SELECT} WHERE i.id = ?`, [id]);
+  async invoiceById(id: string): Promise<InvoiceWithLines | null> {
+    const row = await this.db.get(`${INVOICE_SELECT} WHERE i.id = ?`, [id]);
     if (!row) return null;
-    return { ...toInvoice(row), lines: this.invoiceLines(id) };
+    return { ...toInvoice(row), lines: await this.invoiceLines(id) };
   }
 
-  invoiceByNo(invoiceNo: string): InvoiceWithLines | null {
-    const row = this.db.get(`${INVOICE_SELECT} WHERE i.invoice_no = ?`, [invoiceNo]);
+  async invoiceByNo(invoiceNo: string): Promise<InvoiceWithLines | null> {
+    const row = await this.db.get(`${INVOICE_SELECT} WHERE i.invoice_no = ?`, [invoiceNo]);
     if (!row) return null;
-    return { ...toInvoice(row), lines: this.invoiceLines(String(row.id)) };
+    return { ...toInvoice(row), lines: await this.invoiceLines(String(row.id)) };
   }
 
-  invoiceLines(invoiceId: string): InvoiceLine[] {
-    return this.db
-      .all('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY rowid', [invoiceId])
-      .map((r) => ({
+  async invoiceLines(invoiceId: string): Promise<InvoiceLine[]> {
+    const rows = await this.db.all(
+      'SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY rowid',
+      [invoiceId],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         productId: r.product_id === null ? null : String(r.product_id),
         name: String(r.name_snapshot),
         qty: Number(r.qty),
-        unit: Number(r.unit_piasters),
-        total: Number(r.total_piasters),
-      }));
+      unit: Number(r.unit_piasters),
+      total: Number(r.total_piasters),
+    }));
   }
 
-  invoices(filter: { from?: string; to?: string; kind?: 'retail' | 'wholesale' } = {}): Invoice[] {
+  async invoices(
+    filter: { from?: string; to?: string; kind?: 'retail' | 'wholesale' } = {},
+  ): Promise<Invoice[]> {
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (filter.from) {
@@ -367,26 +390,28 @@ export class SalesRepository {
       params.push(filter.kind);
     }
     const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    return this.db
-      .all(`${INVOICE_SELECT} ${clause} ORDER BY i.issued_at DESC`, params)
-      .map(toInvoice);
+    const rows = await this.db.all(
+      `${INVOICE_SELECT} ${clause} ORDER BY i.issued_at DESC`,
+      params,
+    );
+    return rows.map(toInvoice);
   }
 
-  latestInvoice(): InvoiceWithLines | null {
-    const row = this.db.get(`${INVOICE_SELECT} ORDER BY i.issued_at DESC LIMIT 1`);
+  async latestInvoice(): Promise<InvoiceWithLines | null> {
+    const row = await this.db.get(`${INVOICE_SELECT} ORDER BY i.issued_at DESC LIMIT 1`);
     if (!row) return null;
-    return { ...toInvoice(row), lines: this.invoiceLines(String(row.id)) };
+    return { ...toInvoice(row), lines: await this.invoiceLines(String(row.id)) };
   }
 
-  setInvoiceQr(invoiceId: string, payload: string): void {
-    this.db.mutate(
+  async setInvoiceQr(invoiceId: string, payload: string): Promise<void> {
+    await this.db.mutate(
       {
         entity: 'invoice',
         entityId: invoiceId,
         action: 'set_qr',
         description: 'توليد رمز QR للفاتورة الضريبية',
       },
-      (db) => db.run('UPDATE invoices SET qr_payload = ? WHERE id = ?', [payload, invoiceId]),
+      (tx) => tx.execute('UPDATE invoices SET qr_payload = ? WHERE id = ?', [payload, invoiceId]),
     );
   }
 }

@@ -25,6 +25,7 @@
  */
 
 import { HaseebDatabase, newId, nowIso } from './database';
+import type { SqlTx } from './drivers';
 
 /** Pounds → piasters. */
 const P = (pounds: number): number => Math.round(pounds * 100);
@@ -281,8 +282,8 @@ const AUDIT_HISTORY: Array<[string, string, number, number, number]> = [
 // Seeding
 // ---------------------------------------------------------------------------
 
-export function seed(db: HaseebDatabase): void {
-  db.mutate(
+export async function seed(db: HaseebDatabase): Promise<void> {
+  await db.mutate(
     {
       entity: 'database',
       action: 'seed',
@@ -290,26 +291,29 @@ export function seed(db: HaseebDatabase): void {
       localOnly: true,
       description: 'تهيئة قاعدة البيانات المحلية ببيانات المنشأة الافتتاحية',
     },
-    (d) => {
-      seedProfile(d);
-      seedCatalogue(d);
-      seedCustomers(d);
-      const extraIds = seedExtraDebtors(d);
-      seedInvoices(d);
-      seedTodayTickets(d);
-      seedDebtLedger(d, extraIds);
-      seedMovements(d);
-      seedOrders(d);
-      seedExpensesStaff(d);
-      d.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', ['seeded_at', nowIso()]);
+    async (tx) => {
+      await seedProfile(tx);
+      await seedCatalogue(tx);
+      await seedCustomers(tx);
+      const extraIds = await seedExtraDebtors(tx);
+      await seedInvoices(tx);
+      await seedTodayTickets(tx);
+      await seedDebtLedger(tx, extraIds);
+      await seedMovements(tx);
+      await seedOrders(tx);
+      await seedExpensesStaff(tx);
+      await tx.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [
+        'seeded_at',
+        nowIso(),
+      ]);
     },
   );
 
-  seedAuditHistory(db);
+  await seedAuditHistory(db);
 }
 
-function seedProfile(d: HaseebDatabase): void {
-  d.run(
+async function seedProfile(tx: SqlTx): Promise<void> {
+  await tx.execute(
     `INSERT INTO business_profile (id, name, business_type, currency_code, currency_label,
        phone, commercial_reg, tax_number, vat_rate, onboarded_at, created_at)
      VALUES (1, 'مؤسسة النور التجارية', 'بقالة / سوبرماركت', 'EGP', 'ج.م',
@@ -318,12 +322,12 @@ function seedProfile(d: HaseebDatabase): void {
   );
 }
 
-function seedCatalogue(d: HaseebDatabase): void {
+async function seedCatalogue(tx: SqlTx): Promise<void> {
   for (const c of CATEGORIES) {
-    d.run('INSERT INTO categories (id, name, position) VALUES (?, ?, ?)', [c.id, c.name, c.position]);
+    await tx.execute('INSERT INTO categories (id, name, position) VALUES (?, ?, ?)', [c.id, c.name, c.position]);
   }
   for (const p of PRODUCTS) {
-    d.run(
+    await tx.execute(
       `INSERT INTO products (id, sku, barcode, name, category_id, cost_piasters,
          price_piasters, qty_on_hand, low_threshold, crit_threshold, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 20, 10, ?)`,
@@ -332,9 +336,9 @@ function seedCatalogue(d: HaseebDatabase): void {
   }
 }
 
-function seedCustomers(d: HaseebDatabase): void {
+async function seedCustomers(tx: SqlTx): Promise<void> {
   for (const c of CUSTOMERS) {
-    d.run(
+    await tx.execute(
       `INSERT INTO customers (id, name, kind, phone, city, tier, min_order_qty, since_year, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [c.id, c.name, c.kind, c.phone, c.city, c.tier, c.moq, c.since, at(90, 9)],
@@ -342,17 +346,17 @@ function seedCustomers(d: HaseebDatabase): void {
   }
 }
 
-function seedExtraDebtors(d: HaseebDatabase): string[] {
+async function seedExtraDebtors(tx: SqlTx): Promise<string[]> {
   const ids: string[] = [];
-  EXTRA_DEBTORS.forEach((c, i) => {
+  for (const [i, c] of EXTRA_DEBTORS.entries()) {
     const id = `cus-extra-${i + 1}`;
     ids.push(id);
-    d.run(
+    await tx.execute(
       `INSERT INTO customers (id, name, kind, phone, city, tier, min_order_qty, since_year, created_at)
        VALUES (?, ?, 'retail', ?, 'المنصورة', NULL, 0, 2024, ?)`,
       [id, c.name, c.phone, at(90, 9)],
     );
-  });
+  }
   return ids;
 }
 
@@ -361,9 +365,9 @@ function seedExtraDebtors(d: HaseebDatabase): string[] {
  * reach «٤٨ فاتورة» totalling «٦٢,٤٠٠ ج.م» exactly. The named six are the
  * most recent, so they head the invoice table.
  */
-function seedInvoices(d: HaseebDatabase): void {
+async function seedInvoices(tx: SqlTx): Promise<void> {
   for (const inv of NAMED_INVOICES) {
-    writeInvoice(d, {
+    await writeInvoice(tx, {
       no: inv.no,
       customer: inv.customer,
       occurredAt: at(inv.daysAgo, inv.hour, inv.minute),
@@ -413,7 +417,7 @@ function seedInvoices(d: HaseebDatabase): void {
     const qty = Math.max(1, Math.round(splitVatInclusive(total).subtotal / P(p.price)));
 
     seq += 1;
-    writeInvoice(d, {
+    await writeInvoice(tx, {
       no: `INV-${seq}`,
       customer: customer.id,
       occurredAt: at(daysAgo, 10 + (i % 9), (i * 13) % 60),
@@ -450,12 +454,12 @@ interface InvoiceSeed {
  * are what the books say); the lines are the detail behind them. No stock
  * movement is written — the catalogue quantities are already closing figures.
  */
-function writeInvoice(d: HaseebDatabase, inv: InvoiceSeed): void {
+async function writeInvoice(tx: SqlTx, inv: InvoiceSeed): Promise<void> {
   const { subtotal, vat } = splitVatInclusive(inv.total);
   const saleId = newId();
   const invoiceId = newId();
 
-  d.run(
+  await tx.execute(
     `INSERT INTO sales (id, invoice_no, customer_id, channel, payment_method,
        subtotal_piasters, discount_piasters, vat_piasters, total_piasters,
        profit_piasters, vat_rate, occurred_at)
@@ -463,7 +467,7 @@ function writeInvoice(d: HaseebDatabase, inv: InvoiceSeed): void {
     [saleId, inv.no, inv.customer, inv.channel, inv.method, subtotal, vat, inv.total, inv.profit, inv.occurredAt],
   );
 
-  d.run(
+  await tx.execute(
     `INSERT INTO invoices (id, invoice_no, sale_id, customer_id, kind, status,
        issued_at, due_at, subtotal_piasters, discount_piasters, vat_piasters,
        total_piasters, profit_piasters, qr_payload)
@@ -473,13 +477,13 @@ function writeInvoice(d: HaseebDatabase, inv: InvoiceSeed): void {
 
   for (const line of inv.lines) {
     const total = line.unit * line.qty;
-    d.run(
+    await tx.execute(
       `INSERT INTO sale_lines (id, sale_id, product_id, name_snapshot, qty,
          unit_piasters, cost_piasters, discount_percent, discount_piasters, total_piasters)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`,
       [newId(), saleId, line.productId, line.name, line.qty, line.unit, line.cost, total],
     );
-    d.run(
+    await tx.execute(
       `INSERT INTO invoice_lines (id, invoice_id, product_id, name_snapshot, qty,
          unit_piasters, total_piasters)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -493,7 +497,7 @@ function writeInvoice(d: HaseebDatabase, inv: InvoiceSeed): void {
  * sales: they carry stock movements, because they happened after the closing
  * quantities were taken.
  */
-function seedTodayTickets(d: HaseebDatabase): void {
+async function seedTodayTickets(tx: SqlTx): Promise<void> {
   let seq = 2481;
   for (const ticket of TODAY_TICKETS) {
     const p = product(ticket.sku);
@@ -507,20 +511,20 @@ function seedTodayTickets(d: HaseebDatabase): void {
     const saleId = newId();
     const invoiceId = newId();
 
-    d.run(
+    await tx.execute(
       `INSERT INTO sales (id, invoice_no, customer_id, channel, payment_method,
          subtotal_piasters, discount_piasters, vat_piasters, total_piasters,
          profit_piasters, vat_rate, occurred_at)
        VALUES (?, ?, ?, 'retail', ?, ?, 0, ?, ?, ?, 14, ?)`,
       [saleId, no, ticket.customer, ticket.method, subtotal, vat, total, profit, occurredAt],
     );
-    d.run(
+    await tx.execute(
       `INSERT INTO sale_lines (id, sale_id, product_id, name_snapshot, qty,
          unit_piasters, cost_piasters, discount_percent, discount_piasters, total_piasters)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`,
       [newId(), saleId, p.id, p.name, ticket.qty, P(p.price), P(p.cost), subtotal],
     );
-    d.run(
+    await tx.execute(
       `INSERT INTO invoices (id, invoice_no, sale_id, customer_id, kind, status,
          issued_at, due_at, subtotal_piasters, discount_piasters, vat_piasters,
          total_piasters, profit_piasters, qr_payload)
@@ -532,7 +536,7 @@ function seedTodayTickets(d: HaseebDatabase): void {
         subtotal, vat, total, profit,
       ],
     );
-    d.run(
+    await tx.execute(
       `INSERT INTO invoice_lines (id, invoice_id, product_id, name_snapshot, qty,
          unit_piasters, total_piasters)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -550,22 +554,22 @@ function seedTodayTickets(d: HaseebDatabase): void {
  * balances are seeded to the design's figures, and the extra thirteen
  * customers bring the ledger to «١٢,٤٠٠ · ١٨ عميلاً».
  */
-function seedDebtLedger(d: HaseebDatabase, extraIds: string[]): void {
-  const debt = (
+async function seedDebtLedger(tx: SqlTx, extraIds: string[]): Promise<void> {
+  const debt = async (
     customer: string, pounds: number, openedDaysAgo: number, dueDaysAgo: number,
     note: string, direction: 'receivable' | 'payable' = 'receivable',
-  ): void => {
-    d.run(
+  ): Promise<void> => {
+    await tx.execute(
       `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
          opened_at, due_at, note)
        VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
       [newId(), customer, direction, P(pounds), at(openedDaysAgo, 12), at(dueDaysAgo, 12), note],
     );
   };
-  const payment = (
+  const payment = async (
     customer: string, pounds: number, method: string, daysAgo: number,
-  ): void => {
-    d.run(
+  ): Promise<void> => {
+    await tx.execute(
       `INSERT INTO payments (id, debt_id, customer_id, amount_piasters, method, paid_at, note)
        VALUES (?, NULL, ?, ?, ?, ?, '')`,
       [newId(), customer, P(pounds), method, at(daysAgo, 13)],
@@ -573,55 +577,55 @@ function seedDebtLedger(d: HaseebDatabase, extraIds: string[]): void {
   };
 
   // محمود عبد الله — the fully specified ledger, outstanding ١,٤٥٠, due 12 days ago.
-  debt('cus-mahmoud', 1450, 19, 12, 'فاتورة INV-2479');
-  debt('cus-mahmoud', 800, 35, 28, 'فاتورة INV-2465');
-  payment('cus-mahmoud', 500, 'cash', 12);
-  payment('cus-mahmoud', 300, 'wallet', 27);
+  await debt('cus-mahmoud', 1450, 19, 12, 'فاتورة INV-2479');
+  await debt('cus-mahmoud', 800, 35, 28, 'فاتورة INV-2465');
+  await payment('cus-mahmoud', 500, 'cash', 12);
+  await payment('cus-mahmoud', 300, 'wallet', 27);
 
   // The other named debtors, at the balances and aging the design states.
-  debt('cus-sayed', 1320, 22, -4, 'رصيد مفتوح');
-  payment('cus-sayed', 400, 'transfer', 4);
+  await debt('cus-sayed', 1320, 22, -4, 'رصيد مفتوح');
+  await payment('cus-sayed', 400, 'transfer', 4);
 
-  debt('cus-hoda', 3500, 14, -3, 'فاتورة INV-2480');
-  payment('cus-hoda', 900, 'transfer', 2);
+  await debt('cus-hoda', 3500, 14, -3, 'فاتورة INV-2480');
+  await payment('cus-hoda', 900, 'transfer', 2);
 
-  debt('cus-fatma', 800, 40, 20, 'فاتورة INV-2465');
-  payment('cus-fatma', 800, 'cash', 1);
+  await debt('cus-fatma', 800, 40, 20, 'فاتورة INV-2465');
+  await payment('cus-fatma', 800, 'cash', 1);
 
-  debt('cus-safa', 5300, 26, 9, 'رصيد مفتوح');
-  payment('cus-safa', 1200, 'card', 0);
+  await debt('cus-safa', 5300, 26, 9, 'رصيد مفتوح');
+  await payment('cus-safa', 1200, 'card', 0);
 
-  debt('cus-rokn', 930, 18, -6, 'فاتورة INV-2477');
-  payment('cus-rokn', 250, 'cash', 6);
+  await debt('cus-rokn', 930, 18, -6, 'فاتورة INV-2477');
+  await payment('cus-rokn', 250, 'cash', 6);
 
   // The remaining thirteen, each with one payment already made.
-  EXTRA_DEBTORS.forEach((c, i) => {
+  for (const [i, c] of EXTRA_DEBTORS.entries()) {
     const id = extraIds[i];
     const paid = 120 + i * 10;
-    debt(id, c.owed + paid, 30 + i, c.dueDaysAgo, 'رصيد مفتوح');
-    payment(id, paid, i % 2 === 0 ? 'cash' : 'wallet', c.lastPaidDaysAgo);
-  });
+    await debt(id, c.owed + paid, 30 + i, c.dueDaysAgo, 'رصيد مفتوح');
+    await payment(id, paid, i % 2 === 0 ? 'cash' : 'wallet', c.lastPaidDaysAgo);
+  }
 
   // «محصّل هذا الشهر ٩,٦٤٠ · ٢٣ سداداً» — this month's collections against
   // older invoices. Each is paired with an equal, fully-settled debt raised
   // before the customer's open balance, so FIFO allocation clears the old
   // debt first and the outstanding figures above are untouched.
-  COLLECTIONS.forEach(([customer, pounds, method, daysAgo], i) => {
-    debt(customer, pounds, 60 + i, 45 + i, 'فاتورة سابقة');
-    payment(customer, pounds, method, daysAgo);
-  });
+  for (const [i, [customer, pounds, method, daysAgo]] of COLLECTIONS.entries()) {
+    await debt(customer, pounds, 60 + i, 45 + i, 'فاتورة سابقة');
+    await payment(customer, pounds, method, daysAgo);
+  }
 
   // «مستحق عليك (دائنون) ٣,٨٥٠ · ٤ موردين»
-  debt('sup-sharq', 1600, 2, -12, 'أمر توريد PO-311', 'payable');
-  debt('sup-delta', 1150, 3, -9, 'أمر توريد PO-310', 'payable');
-  debt('sup-ahram', 700, 6, -15, 'رصيد مورد', 'payable');
-  debt('sup-nour', 400, 8, -20, 'رصيد مورد', 'payable');
+  await debt('sup-sharq', 1600, 2, -12, 'أمر توريد PO-311', 'payable');
+  await debt('sup-delta', 1150, 3, -9, 'أمر توريد PO-310', 'payable');
+  await debt('sup-ahram', 700, 6, -15, 'رصيد مورد', 'payable');
+  await debt('sup-nour', 400, 8, -20, 'رصيد مورد', 'payable');
 }
 
-function seedMovements(d: HaseebDatabase): void {
+async function seedMovements(tx: SqlTx): Promise<void> {
   for (const m of MOVEMENTS) {
     const p = product(m.sku);
-    d.run(
+    await tx.execute(
       `INSERT INTO stock_movements
          (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, '', ?)`,
@@ -630,9 +634,9 @@ function seedMovements(d: HaseebDatabase): void {
   }
 }
 
-function seedOrders(d: HaseebDatabase): void {
+async function seedOrders(tx: SqlTx): Promise<void> {
   for (const [no, direction, cid, name, status, fulfilment, items, total, daysAgo, hour] of ORDERS) {
-    d.run(
+    await tx.execute(
       `INSERT INTO orders (id, order_no, direction, counterparty_id, counterparty_name,
          status, fulfilment, item_count, summary, total_piasters, placed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
@@ -641,29 +645,29 @@ function seedOrders(d: HaseebDatabase): void {
   }
 }
 
-function seedExpensesStaff(d: HaseebDatabase): void {
+async function seedExpensesStaff(tx: SqlTx): Promise<void> {
   const period = new Date().toISOString().slice(0, 7);
   for (const e of EXPENSES) {
-    d.run(
+    await tx.execute(
       `INSERT INTO expenses (id, label, amount_piasters, color, period, recorded_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [newId(), e.label, P(e.amount), e.color, period, at(5, 9)],
     );
   }
   for (const s of STAFF) {
-    d.run(
+    await tx.execute(
       'INSERT INTO staff (id, name, role, scope, active, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       [s.id, s.name, s.role, s.scope, s.active ? 1 : 0, at(120, 9)],
     );
     for (const ability of s.abilities) {
-      d.run('INSERT INTO permissions (staff_id, ability, granted) VALUES (?, ?, 1)', [s.id, ability]);
+      await tx.execute('INSERT INTO permissions (staff_id, ability, granted) VALUES (?, ?, 1)', [s.id, ability]);
     }
   }
 }
 
 /** The five audit lines the design shows, written as history after the seed. */
-function seedAuditHistory(db: HaseebDatabase): void {
-  db.mutate(
+async function seedAuditHistory(db: HaseebDatabase): Promise<void> {
+  await db.mutate(
     {
       entity: 'audit_log',
       action: 'seed_history',
@@ -671,9 +675,9 @@ function seedAuditHistory(db: HaseebDatabase): void {
       localOnly: true,
       description: 'استيراد سجل التدقيق الافتتاحي',
     },
-    (d) => {
+    async (tx) => {
       for (const [description, actor, daysAgo, hour, minute] of AUDIT_HISTORY) {
-        d.run(
+        await tx.execute(
           `INSERT INTO audit_log (id, entity, entity_id, action, description, actor, payload, occurred_at)
            VALUES (?, 'history', '', 'record', ?, ?, '', ?)`,
           [newId(), description, actor, at(daysAgo, hour, minute)],
@@ -684,8 +688,8 @@ function seedAuditHistory(db: HaseebDatabase): void {
 }
 
 /** Wipe every table and re-seed. Reachable from الإعدادات. */
-export function resetToSeed(db: HaseebDatabase): void {
-  db.mutate(
+export async function resetToSeed(db: HaseebDatabase): Promise<void> {
+  await db.mutate(
     {
       entity: 'database',
       action: 'reset',
@@ -693,17 +697,17 @@ export function resetToSeed(db: HaseebDatabase): void {
       localOnly: true,
       description: 'إعادة ضبط قاعدة البيانات المحلية إلى البيانات الافتتاحية',
     },
-    (d) => {
+    async (tx) => {
       for (const table of [
         'sale_lines', 'invoice_lines', 'payments', 'debts', 'stock_movements',
         'sales', 'invoices', 'orders', 'permissions', 'staff', 'expenses',
         'products', 'categories', 'customers', 'business_profile',
         'audit_log', 'sync_queue', 'meta',
       ]) {
-        d.run(`DELETE FROM ${table}`);
+        await tx.execute(`DELETE FROM ${table}`);
       }
     },
   );
-  seed(db);
+  await seed(db);
   db.touch();
 }

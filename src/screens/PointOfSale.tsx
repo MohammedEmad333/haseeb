@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Button, Card, CardHead, EmptyState, ErrorState, Input, Select } from '@/ui/primitives';
 import { DataTable, PageHeader, type Column } from '@/ui/composites';
 import type { CartLine } from '@/db/repositories/sales';
@@ -26,8 +27,7 @@ const PAYMENT_TINT: Record<PaymentMethod, { bg: string; fg: string; label: strin
 };
 
 export function PointOfSale() {
-  const { products, sales, customers, analytics, profile, revision, search, setSearch, db } =
-    useHaseeb();
+  const { products, sales, customers, analytics, profile, search, setSearch, db } = useHaseeb();
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
@@ -35,24 +35,24 @@ export function PointOfSale() {
   const [flash, setFlash] = useState<string | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!products || !sales || !analytics || !customers) return null;
     const asOf = new Date();
-    const today = analytics.todayTotals(asOf);
-    const week = analytics.weekTotals(asOf);
+    const today = await analytics.todayTotals(asOf);
+    const week = await analytics.weekTotals(asOf);
     return {
-      catalogue: products.search(search),
-      log: sales.recentSaleLines(8),
-      creditCustomers: customers.list('retail').concat(customers.list('wholesale')),
+      nextInvoiceNo: await sales.nextInvoiceNo(),
+      catalogue: await products.search(search),
+      log: await sales.recentSaleLines(8),
+      creditCustomers: (await customers.list('retail')).concat(await customers.list('wholesale')),
       today,
-      weekCollected: analytics.collectedBetween(
+      weekCollected: await analytics.collectedBetween(
         startOfWeek(asOf).toISOString(),
         endOfToday(asOf).toISOString(),
       ),
       margin: marginPercent(week.sales, week.profit),
     };
-     
-  }, [products, sales, analytics, customers, search, revision]);
+  }, [products, sales, analytics, customers, search]);
 
   const vatRate = profile?.vatRate ?? 14;
   const unit = profile?.currencyLabel ?? 'ج.م';
@@ -95,13 +95,13 @@ export function PointOfSale() {
     });
   };
 
-  const setQty = (productId: string, qty: number): void => {
+  const setQty = async (productId: string, qty: number): Promise<void> => {
     setError(null);
     if (qty <= 0) {
       setCart((current) => current.filter((line) => line.productId !== productId));
       return;
     }
-    const stock = products!.byId(productId)?.qtyOnHand ?? 0;
+    const stock = (await products!.byId(productId))?.qtyOnHand ?? 0;
     if (qty > stock) {
       setError(`الكمية المتاحة ${num(stock)} فقط.`);
       return;
@@ -111,7 +111,7 @@ export function PointOfSale() {
     );
   };
 
-  const checkout = (paymentMethod: PaymentMethod): void => {
+  const checkout = async (paymentMethod: PaymentMethod): Promise<void> => {
     setError(null);
     if (cart.length === 0) {
       setError('أضف صنفاً واحداً على الأقل قبل إتمام الدفع.');
@@ -122,7 +122,7 @@ export function PointOfSale() {
       return;
     }
     try {
-      const result = sales!.checkout({
+      const result = await sales!.checkout({
         lines: cart,
         paymentMethod,
         customerId: paymentMethod === 'credit' ? customerId : null,
@@ -131,7 +131,7 @@ export function PointOfSale() {
       });
       setCart([]);
       setCustomerId('');
-      void db?.flush();
+      await db?.flush();
       setFlash(
         paymentMethod === 'credit'
           ? `سُجِّلت الفاتورة ${result.invoice.invoiceNo} كدين على العميل.`
@@ -314,7 +314,7 @@ export function PointOfSale() {
           totals={totals}
           vatRate={vatRate}
           unit={unit}
-          invoiceNo={sales!.nextInvoiceNo()}
+          invoiceNo={view.nextInvoiceNo}
           customerId={customerId}
           customers={view.creditCustomers}
           onCustomer={setCustomerId}
@@ -451,8 +451,8 @@ function CartPanel({
   customerId: string;
   customers: readonly { id: string; name: string }[];
   onCustomer: (id: string) => void;
-  onQty: (productId: string, qty: number) => void;
-  onCheckout: (method: PaymentMethod) => void;
+  onQty: (productId: string, qty: number) => void | Promise<void>;
+  onCheckout: (method: PaymentMethod) => void | Promise<void>;
 }) {
   return (
     <Card
@@ -498,7 +498,7 @@ function CartPanel({
                   padding: '2px 4px',
                 }}
               >
-                <Stepper label={`إنقاص ${line.name}`} onClick={() => onQty(line.productId, line.qty - 1)}>
+                <Stepper label={`إنقاص ${line.name}`} onClick={() => void onQty(line.productId, line.qty - 1)}>
                   −
                 </Stepper>
                 <span className="hs-num" style={{ minWidth: 22, textAlign: 'center', color: 'var(--hs-on-dark)', fontSize: 'var(--hs-fs-cell)' }}>
@@ -507,7 +507,7 @@ function CartPanel({
                 <Stepper
                   label={`زيادة ${line.name}`}
                   accent
-                  onClick={() => onQty(line.productId, line.qty + 1)}
+                  onClick={() => void onQty(line.productId, line.qty + 1)}
                 >
                   +
                 </Stepper>
@@ -561,10 +561,10 @@ function CartPanel({
         </Select>
 
         <div className="hs-row" style={{ gap: 'var(--hs-sp-4)' }}>
-          <Button variant="glass" style={{ flex: 1 }} onClick={() => onCheckout('credit')}>
+          <Button variant="glass" style={{ flex: 1 }} onClick={() => void onCheckout('credit')}>
             تسجيل كدين
           </Button>
-          <Button variant="mint" style={{ flex: 1 }} onClick={() => onCheckout('cash')}>
+          <Button variant="mint" style={{ flex: 1 }} onClick={() => void onCheckout('cash')}>
             إتمام الدفع
           </Button>
         </div>

@@ -6,8 +6,9 @@
  * describe the same set of rows.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardHead, ChipGroup, EmptyState, Tabs } from '@/ui/primitives';
 import { AccentCard, AutoGrid, DataTable, PageHeader, type Column } from '@/ui/composites';
 import type { Invoice, InvoiceStatus } from '@/db/types';
@@ -30,25 +31,24 @@ const STATUS_TINT: Record<InvoiceStatus, { bg: string; fg: string; dot: string; 
 };
 
 export function Finance() {
-  const { sales, analytics, ops, profile, revision } = useHaseeb();
+  const { sales, analytics, profile } = useHaseeb();
   const [period, setPeriod] = useState<Period>('week');
   const [kind, setKind] = useState<Kind>('all');
   const [statuses, setStatuses] = useState<Set<InvoiceStatus>>(new Set());
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!sales || !analytics) return null;
     const { from, to } = rangeFor(period);
-    const all = sales.invoices({
+    const all = await sales.invoices({
       from: from.toISOString(),
       to: to.toISOString(),
       ...(kind === 'all' ? {} : { kind }),
     });
     return {
-      summary: analytics.financeSummary(from.toISOString(), to.toISOString()),
+      summary: await analytics.financeSummary(from.toISOString(), to.toISOString()),
       rows: statuses.size === 0 ? all : all.filter((i) => statuses.has(i.status)),
     };
-     
-  }, [sales, analytics, period, kind, statuses, revision]);
+  }, [sales, analytics, period, kind, statuses]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? 'ج.م';
@@ -221,8 +221,8 @@ export function Finance() {
       </Card>
 
       <p style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 'var(--hs-sp-7)' }}>
-        إجمالي المصروفات المسجّلة للشهر {money(ops?.totalExpenses() ?? 0, 0)} {unit} — تُوزَّع على الفترة
-        المختارة بالتناسب مع عدد أيامها.
+        مصروفات الفترة {money(view.summary.expenses, 0)} {unit} — تُوزَّع مصروفات الشهر بالتناسب مع
+        عدد أيام الفترة المختارة.
       </p>
     </>
   );

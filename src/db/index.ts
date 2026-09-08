@@ -41,14 +41,15 @@ export async function openHaseeb(
   options: OpenOptions & { seedIfEmpty?: boolean } = {},
 ): Promise<Haseeb> {
   const db = await HaseebDatabase.open(options);
-  if ((options.seedIfEmpty ?? true) && db.isEmpty()) {
-    seed(db);
+  if ((options.seedIfEmpty ?? true) && (await db.isEmpty())) {
+    await seed(db);
     await db.flush();
   }
   return repositories(db);
 }
 
 export { HaseebDatabase } from './database';
+export type { SqlDriver, SqlTx } from './drivers';
 export { seed, resetToSeed } from './seed';
 export * from './types';
 export { ProductRepository, SalesRepository, CustomerRepository, OperationsRepository, AnalyticsRepository };

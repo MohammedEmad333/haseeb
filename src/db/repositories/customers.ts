@@ -28,21 +28,21 @@ export interface DebtorSummary extends Customer {
 export class CustomerRepository {
   constructor(private readonly db: HaseebDatabase) {}
 
-  list(kind?: CustomerKind): Customer[] {
+  async list(kind?: CustomerKind): Promise<Customer[]> {
     const rows = kind
-      ? this.db.all('SELECT * FROM customers WHERE kind = ? ORDER BY name', [kind])
-      : this.db.all('SELECT * FROM customers ORDER BY name');
+      ? await this.db.all('SELECT * FROM customers WHERE kind = ? ORDER BY name', [kind])
+      : await this.db.all('SELECT * FROM customers ORDER BY name');
     return rows.map(toCustomer);
   }
 
-  byId(id: string): Customer | null {
-    const row = this.db.get('SELECT * FROM customers WHERE id = ?', [id]);
+  async byId(id: string): Promise<Customer | null> {
+    const row = await this.db.get('SELECT * FROM customers WHERE id = ?', [id]);
     return row ? toCustomer(row) : null;
   }
 
-  create(input: Omit<Customer, 'id'>): Customer {
+  async create(input: Omit<Customer, 'id'>): Promise<Customer> {
     const id = newId();
-    this.db.mutate(
+    await this.db.mutate(
       {
         entity: 'customer',
         entityId: id,
@@ -50,8 +50,8 @@ export class CustomerRepository {
         description: `إضافة عميل «${input.name}»`,
         payload: input,
       },
-      (db) =>
-        db.run(
+      (tx) =>
+        tx.execute(
           `INSERT INTO customers (id, name, kind, phone, city, tier, min_order_qty, since_year, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -80,15 +80,18 @@ export class CustomerRepository {
    * Summing balances alone would let a customer who just took on a fresh
    * 30-day debt look current while a six-week-old invoice sits unpaid.
    */
-  debtors(direction: 'receivable' | 'payable' = 'receivable', asOf = new Date()): DebtorSummary[] {
-    const customers = new Map(this.list().map((c) => [c.id, c]));
+  async debtors(
+    direction: 'receivable' | 'payable' = 'receivable',
+    asOf = new Date(),
+  ): Promise<DebtorSummary[]> {
+    const customers = new Map((await this.list()).map((c) => [c.id, c]));
 
-    const debtRows = this.db.all(
+    const debtRows = await this.db.all(
       `SELECT customer_id, principal_piasters, due_at FROM debts
        WHERE direction = ? ORDER BY customer_id, opened_at, rowid`,
       [direction],
     );
-    const paymentRows = this.db.all(
+    const paymentRows = await this.db.all(
       `SELECT customer_id, amount_piasters, paid_at FROM payments
        ORDER BY customer_id, paid_at, rowid`,
     );
@@ -141,52 +144,58 @@ export class CustomerRepository {
     return summaries.sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name, 'ar'));
   }
 
-  debtsFor(customerId: string): Debt[] {
-    return this.db
-      .all('SELECT * FROM debts WHERE customer_id = ? ORDER BY opened_at DESC', [customerId])
-      .map((r) => ({
+  async debtsFor(customerId: string): Promise<Debt[]> {
+    const rows = await this.db.all(
+      'SELECT * FROM debts WHERE customer_id = ? ORDER BY opened_at DESC',
+      [customerId],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         customerId: String(r.customer_id),
         invoiceId: r.invoice_id === null ? null : String(r.invoice_id),
         direction: String(r.direction) as 'receivable' | 'payable',
         principal: Number(r.principal_piasters),
-        openedAt: String(r.opened_at),
-        dueAt: String(r.due_at),
-        note: String(r.note),
-      }));
+      openedAt: String(r.opened_at),
+      dueAt: String(r.due_at),
+      note: String(r.note),
+    }));
   }
 
-  paymentsFor(customerId: string): Payment[] {
-    return this.db
-      .all('SELECT * FROM payments WHERE customer_id = ? ORDER BY paid_at DESC', [customerId])
-      .map((r) => ({
+  async paymentsFor(customerId: string): Promise<Payment[]> {
+    const rows = await this.db.all(
+      'SELECT * FROM payments WHERE customer_id = ? ORDER BY paid_at DESC',
+      [customerId],
+    );
+    return rows.map((r) => ({
         id: String(r.id),
         debtId: r.debt_id === null ? null : String(r.debt_id),
         customerId: String(r.customer_id),
         amount: Number(r.amount_piasters),
-        method: String(r.method) as SettlementMethod,
-        paidAt: String(r.paid_at),
-        note: String(r.note),
-      }));
+      method: String(r.method) as SettlementMethod,
+      paidAt: String(r.paid_at),
+      note: String(r.note),
+    }));
   }
 
   /** Debts and payments interleaved — the «سجل السدادات» timeline. */
-  ledgerFor(customerId: string): Array<{
-    id: string;
-    kind: 'debt' | 'payment';
-    label: string;
-    amount: number;
-    at: string;
-  }> {
+  async ledgerFor(customerId: string): Promise<
+    Array<{
+      id: string;
+      kind: 'debt' | 'payment';
+      label: string;
+      amount: number;
+      at: string;
+    }>
+  > {
     const entries = [
-      ...this.debtsFor(customerId).map((d) => ({
+      ...(await this.debtsFor(customerId)).map((d) => ({
         id: d.id,
         kind: 'debt' as const,
         label: d.note ? `دين جديد — ${d.note}` : 'دين جديد',
         amount: d.principal,
         at: d.openedAt,
       })),
-      ...this.paymentsFor(customerId).map((p) => ({
+      ...(await this.paymentsFor(customerId)).map((p) => ({
         id: p.id,
         kind: 'payment' as const,
         label: PAYMENT_LABEL[p.method],
@@ -197,17 +206,17 @@ export class CustomerRepository {
     return entries.sort((a, b) => b.at.localeCompare(a.at));
   }
 
-  recordDebt(input: {
+  async recordDebt(input: {
     customerId: string;
     amount: number;
     dueAt: string;
     invoiceId?: string | null;
     direction?: 'receivable' | 'payable';
     note?: string;
-  }): string {
+  }): Promise<string> {
     const id = newId();
-    const customer = this.byId(input.customerId);
-    this.db.mutate(
+    const customer = await this.byId(input.customerId);
+    await this.db.mutate(
       {
         entity: 'debt',
         entityId: id,
@@ -215,8 +224,8 @@ export class CustomerRepository {
         description: `تسجيل دين ${money(input.amount)} على «${customer?.name ?? input.customerId}»`,
         payload: input,
       },
-      (db) =>
-        db.run(
+      (tx) =>
+        tx.execute(
           `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
              opened_at, due_at, note)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -235,16 +244,16 @@ export class CustomerRepository {
     return id;
   }
 
-  recordPayment(input: {
+  async recordPayment(input: {
     customerId: string;
     amount: number;
     method: SettlementMethod;
     debtId?: string | null;
     note?: string;
-  }): string {
+  }): Promise<string> {
     const id = newId();
-    const customer = this.byId(input.customerId);
-    this.db.mutate(
+    const customer = await this.byId(input.customerId);
+    await this.db.mutate(
       {
         entity: 'payment',
         entityId: id,
@@ -252,8 +261,8 @@ export class CustomerRepository {
         description: `سداد ${money(input.amount)} من «${customer?.name ?? input.customerId}»`,
         payload: input,
       },
-      (db) =>
-        db.run(
+      (tx) =>
+        tx.execute(
           `INSERT INTO payments (id, debt_id, customer_id, amount_piasters, method, paid_at, note)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -271,7 +280,7 @@ export class CustomerRepository {
   }
 
   /** Totals for the four cards at the top of دفتر الديون. */
-  debtTotals(asOf = new Date()): {
+  async debtTotals(asOf = new Date()): Promise<{
     receivable: number;
     receivableCount: number;
     payable: number;
@@ -280,13 +289,13 @@ export class CustomerRepository {
     overdueCount: number;
     collectedThisMonth: number;
     collectedCount: number;
-  } {
-    const receivables = this.debtors('receivable', asOf).filter((d) => d.outstanding > 0);
-    const payables = this.debtors('payable', asOf).filter((d) => d.outstanding > 0);
+  }> {
+    const receivables = (await this.debtors('receivable', asOf)).filter((d) => d.outstanding > 0);
+    const payables = (await this.debtors('payable', asOf)).filter((d) => d.outstanding > 0);
     const overdue = receivables.filter((d) => d.aging.status === 'overdue');
 
     const monthStart = new Date(asOf.getFullYear(), asOf.getMonth(), 1).toISOString();
-    const collected = this.db.get(
+    const collected = await this.db.get(
       'SELECT COALESCE(SUM(amount_piasters), 0) AS total, COUNT(*) AS n FROM payments WHERE paid_at >= ?',
       [monthStart],
     );

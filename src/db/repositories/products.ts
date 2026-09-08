@@ -38,51 +38,52 @@ function toProduct(row: Row): Product {
 export class ProductRepository {
   constructor(private readonly db: HaseebDatabase) {}
 
-  categories(): Category[] {
-    return this.db
-      .all('SELECT id, name, position FROM categories ORDER BY position, name')
-      .map((r) => ({ id: String(r.id), name: String(r.name), position: Number(r.position) }));
+  async categories(): Promise<Category[]> {
+    const rows = await this.db.all('SELECT id, name, position FROM categories ORDER BY position, name');
+    return rows.map((r) => ({ id: String(r.id), name: String(r.name), position: Number(r.position) }));
   }
 
-  list(categoryId?: string | null): Product[] {
+  async list(categoryId?: string | null): Promise<Product[]> {
     const rows = categoryId
-      ? this.db.all(`${PRODUCT_SELECT} WHERE p.category_id = ? ORDER BY p.name`, [categoryId])
-      : this.db.all(`${PRODUCT_SELECT} ORDER BY p.name`);
+      ? await this.db.all(`${PRODUCT_SELECT} WHERE p.category_id = ? ORDER BY p.name`, [categoryId])
+      : await this.db.all(`${PRODUCT_SELECT} ORDER BY p.name`);
     return rows.map(toProduct);
   }
 
-  byId(id: string): Product | null {
-    const row = this.db.get(`${PRODUCT_SELECT} WHERE p.id = ?`, [id]);
+  async byId(id: string): Promise<Product | null> {
+    const row = await this.db.get(`${PRODUCT_SELECT} WHERE p.id = ?`, [id]);
     return row ? toProduct(row) : null;
   }
 
   /** Barcode scan, then a name/SKU contains-match — what the POS search does. */
-  search(term: string): Product[] {
+  async search(term: string): Promise<Product[]> {
     const trimmed = term.trim();
     if (!trimmed) return this.list();
-    const exact = this.db.get(`${PRODUCT_SELECT} WHERE p.barcode = ? OR p.sku = ?`, [
+    const exact = await this.db.get(`${PRODUCT_SELECT} WHERE p.barcode = ? OR p.sku = ?`, [
       trimmed,
       trimmed,
     ]);
     if (exact) return [toProduct(exact)];
     const like = `%${trimmed}%`;
-    return this.db
-      .all(`${PRODUCT_SELECT} WHERE p.name LIKE ? OR p.sku LIKE ? ORDER BY p.name`, [like, like])
-      .map(toProduct);
+    const rows = await this.db.all(
+      `${PRODUCT_SELECT} WHERE p.name LIKE ? OR p.sku LIKE ? ORDER BY p.name`,
+      [like, like],
+    );
+    return rows.map(toProduct);
   }
 
-  lowStock(): Product[] {
-    return this.list().filter((p) => p.status !== 'inStock');
+  async lowStock(): Promise<Product[]> {
+    return (await this.list()).filter((p) => p.status !== 'inStock');
   }
 
-  criticalCount(): number {
-    return this.list().filter((p) => p.status === 'critical').length;
+  async criticalCount(): Promise<number> {
+    return (await this.list()).filter((p) => p.status === 'critical').length;
   }
 
-  updatePrice(id: string, price: number, actor = 'المدير'): void {
-    const before = this.byId(id);
+  async updatePrice(id: string, price: number, actor = 'المدير'): Promise<void> {
+    const before = await this.byId(id);
     if (!before) throw new Error(`unknown product ${id}`);
-    this.db.mutate(
+    await this.db.mutate(
       {
         entity: 'product',
         entityId: id,
@@ -91,7 +92,7 @@ export class ProductRepository {
         description: `تعديل سعر بيع «${before.name}» من ${money(before.price)} إلى ${money(price)}`,
         payload: { from: before.price, to: price },
       },
-      (db) => db.run('UPDATE products SET price_piasters = ? WHERE id = ?', [price, id]),
+      (tx) => tx.execute('UPDATE products SET price_piasters = ? WHERE id = ?', [price, id]),
     );
   }
 
@@ -100,7 +101,7 @@ export class ProductRepository {
    * `applyMovement` refuses to drive a product negative, and because that
    * check runs inside the transaction, the movement row is rolled back with it.
    */
-  move(input: {
+  async move(input: {
     productId: string;
     kind: MovementKind;
     qty: number;
@@ -108,14 +109,14 @@ export class ProductRepository {
     counterparty?: string;
     note?: string;
     occurredAt?: string;
-  }): number {
-    const product = this.byId(input.productId);
+  }): Promise<number> {
+    const product = await this.byId(input.productId);
     if (!product) throw new Error(`unknown product ${input.productId}`);
     const qtyAfter = applyMovement(product.qtyOnHand, input.kind, input.qty);
     const delta = movementDelta(input.kind, input.qty);
     const at = input.occurredAt ?? nowIso();
 
-    this.db.mutate(
+    await this.db.mutate(
       {
         entity: 'stock_movement',
         entityId: input.productId,
@@ -124,9 +125,9 @@ export class ProductRepository {
         description: `${MOVEMENT_LABEL[input.kind]} — ${product.name} (${delta > 0 ? '+' : '−'}${Math.abs(delta)})`,
         payload: { productId: input.productId, delta, qtyAfter },
       },
-      (db) => {
-        db.run('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, input.productId]);
-        db.run(
+      async (tx) => {
+        await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, input.productId]);
+        await tx.execute(
           `INSERT INTO stock_movements
              (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -147,27 +148,26 @@ export class ProductRepository {
     return qtyAfter;
   }
 
-  movements(limit = 20): StockMovement[] {
-    return this.db
-      .all(
-        `SELECT m.*, p.name AS product_name
-         FROM stock_movements m
-         JOIN products p ON p.id = m.product_id
-         ORDER BY m.occurred_at DESC
-         LIMIT ?`,
-        [limit],
-      )
-      .map((r) => ({
-        id: String(r.id),
-        productId: String(r.product_id),
-        productName: String(r.product_name),
-        kind: String(r.kind) as MovementKind,
-        qtyDelta: Number(r.qty_delta),
-        qtyAfter: Number(r.qty_after),
-        actor: String(r.actor),
-        counterparty: String(r.counterparty),
-        note: String(r.note),
-        occurredAt: String(r.occurred_at),
-      }));
+  async movements(limit = 20): Promise<StockMovement[]> {
+    const rows = await this.db.all(
+      `SELECT m.*, p.name AS product_name
+       FROM stock_movements m
+       JOIN products p ON p.id = m.product_id
+       ORDER BY m.occurred_at DESC
+       LIMIT ?`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      id: String(r.id),
+      productId: String(r.product_id),
+      productName: String(r.product_name),
+      kind: String(r.kind) as MovementKind,
+      qtyDelta: Number(r.qty_delta),
+      qtyAfter: Number(r.qty_after),
+      actor: String(r.actor),
+      counterparty: String(r.counterparty),
+      note: String(r.note),
+      occurredAt: String(r.occurred_at),
+    }));
   }
 }

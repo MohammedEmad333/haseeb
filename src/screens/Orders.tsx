@@ -3,8 +3,9 @@
  * printable tax invoice beside them.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Tabs } from '@/ui/primitives';
 import { PageHeader } from '@/ui/composites';
 import { TaxInvoice } from '@/screens/parts/TaxInvoice';
@@ -27,14 +28,13 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
 };
 
 export function Orders() {
-  const { ops, sales, profile, revision, db } = useHaseeb();
+  const { ops, sales, profile, db } = useHaseeb();
   const [direction, setDirection] = useState<OrderDirection>('customer');
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!ops || !sales) return null;
-    return { orders: ops.orders(direction), invoice: sales.latestInvoice() };
-     
-  }, [ops, sales, direction, revision]);
+    return { orders: await ops.orders(direction), invoice: await sales.latestInvoice() };
+  }, [ops, sales, direction]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? 'ج.م';
@@ -80,11 +80,11 @@ export function Orders() {
                     <li key={order.id}>
                       <OrderRow
                         order={order}
-                        onAdvance={() => {
+                        onAdvance={async () => {
                           const next = NEXT_STATUS[order.status];
                           if (!next) return;
-                          ops!.setOrderStatus(order.id, next);
-                          void db?.flush();
+                          await ops!.setOrderStatus(order.id, next);
+                          await db?.flush();
                         }}
                       />
                     </li>
@@ -112,7 +112,7 @@ export function Orders() {
   );
 }
 
-function OrderRow({ order, onAdvance }: { order: Order; onAdvance: () => void }) {
+function OrderRow({ order, onAdvance }: { order: Order; onAdvance: () => void | Promise<void> }) {
   const tint = STATUS_TINT[order.status];
   const next = NEXT_STATUS[order.status];
   const prefix = order.direction === 'supplier' ? 'أمر توريد' : 'طلب';
@@ -151,7 +151,7 @@ function OrderRow({ order, onAdvance }: { order: Order; onAdvance: () => void })
       </span>
 
       {next ? (
-        <Button size="sm" onClick={onAdvance}>
+        <Button size="sm" onClick={() => void onAdvance()}>
           {ORDER_STATUS_LABEL[next]}
         </Button>
       ) : null}

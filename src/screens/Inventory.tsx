@@ -6,8 +6,9 @@
  * in a separate report that has to be reconciled.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input } from '@/ui/primitives';
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
 import type { Product, StockMovement } from '@/db/types';
@@ -28,20 +29,19 @@ const MOVEMENT_TINT: Record<string, { dot: string; fg: string }> = {
 };
 
 export function Inventory() {
-  const { products, profile, revision, db } = useHaseeb();
+  const { products, profile, db } = useHaseeb();
   const [category, setCategory] = useState<string>('all');
   const [receiving, setReceiving] = useState<Product | null>(null);
 
-  const view = useMemo(() => {
+  const { data: view } = useQuery(async () => {
     if (!products) return null;
     return {
-      categories: products.categories(),
-      rows: products.list(category === 'all' ? null : category),
-      movements: products.movements(8),
-      alerts: products.list().filter((p) => p.status === 'critical').length,
+      categories: await products.categories(),
+      rows: await products.list(category === 'all' ? null : category),
+      movements: await products.movements(8),
+      alerts: await products.criticalCount(),
     };
-     
-  }, [products, category, revision]);
+  }, [products, category]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? 'ج.م';
@@ -192,15 +192,15 @@ export function Inventory() {
         <ReceiveDialog
           product={receiving}
           onClose={() => setReceiving(null)}
-          onSubmit={(qty, supplier) => {
-            products!.move({
+          onSubmit={async (qty, supplier) => {
+            await products!.move({
               productId: receiving.id,
               kind: 'purchase',
               qty,
               actor: 'أمين المخزن',
               counterparty: supplier,
             });
-            void db?.flush();
+            await db?.flush();
             setReceiving(null);
           }}
         />
@@ -233,7 +233,7 @@ function ReceiveDialog({
 }: {
   product: Product;
   onClose: () => void;
-  onSubmit: (qty: number, supplier: string) => void;
+  onSubmit: (qty: number, supplier: string) => void | Promise<void>;
 }) {
   const [qty, setQty] = useState('10');
   const [supplier, setSupplier] = useState('');
@@ -310,7 +310,7 @@ function ReceiveDialog({
               variant="action"
               style={{ flex: 1 }}
               disabled={invalid}
-              onClick={() => onSubmit(parsed, supplier.trim())}
+              onClick={() => void onSubmit(parsed, supplier.trim())}
             >
               تسجيل التوريد
             </Button>

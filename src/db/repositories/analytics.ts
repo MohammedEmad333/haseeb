@@ -48,8 +48,11 @@ export class AnalyticsRepository {
   }
 
   /** Sales and profit between two instants. */
-  totalsBetween(fromIso: string, toIso: string): { sales: number; profit: number; count: number } {
-    const row = this.db.get(
+  async totalsBetween(
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ sales: number; profit: number; count: number }> {
+    const row = await this.db.get(
       `SELECT COALESCE(SUM(total_piasters), 0) AS sales,
               COALESCE(SUM(profit_piasters), 0) AS profit,
               COUNT(*) AS n
@@ -63,34 +66,34 @@ export class AnalyticsRepository {
     };
   }
 
-  todayTotals(asOf = new Date()): { sales: number; profit: number; count: number } {
+  async todayTotals(asOf = new Date()): Promise<{ sales: number; profit: number; count: number }> {
     const start = startOfDay(asOf);
     return this.totalsBetween(start.toISOString(), addDays(start, 1).toISOString());
   }
 
-  weekTotals(asOf = new Date()): { sales: number; profit: number; count: number } {
+  async weekTotals(asOf = new Date()): Promise<{ sales: number; profit: number; count: number }> {
     const start = addDays(startOfDay(asOf), -6);
     return this.totalsBetween(start.toISOString(), addDays(startOfDay(asOf), 1).toISOString());
   }
 
   /** Seven-day sales/profit series for the dashboard chart, oldest first. */
-  weekSeries(asOf = new Date()): SeriesPoint[] {
+  async weekSeries(asOf = new Date()): Promise<SeriesPoint[]> {
     const points: SeriesPoint[] = [];
     const today = startOfDay(asOf);
     for (let i = 6; i >= 0; i -= 1) {
       const from = addDays(today, -i);
       const to = addDays(from, 1);
-      const { sales, profit } = this.totalsBetween(from.toISOString(), to.toISOString());
+      const { sales, profit } = await this.totalsBetween(from.toISOString(), to.toISOString());
       points.push({ label: DAY_LABELS[from.getDay()], sales, profit });
     }
     return points;
   }
 
   /** Share of the week's revenue by sales channel, for the donut. */
-  channelShares(asOf = new Date()): ChannelShare[] {
+  async channelShares(asOf = new Date()): Promise<ChannelShare[]> {
     const start = addDays(startOfDay(asOf), -6).toISOString();
     const end = addDays(startOfDay(asOf), 1).toISOString();
-    const rows = this.db.all(
+    const rows = await this.db.all(
       `SELECT channel, COALESCE(SUM(total_piasters), 0) AS total
        FROM sales WHERE occurred_at >= ? AND occurred_at < ?
        GROUP BY channel`,
@@ -120,52 +123,58 @@ export class AnalyticsRepository {
    * payments received against older debts. Credit sales are revenue but not
    * yet «محصول», which is the distinction the owner cares about.
    */
-  collectedBetween(fromIso: string, toIso: string): number {
+  async collectedBetween(fromIso: string, toIso: string): Promise<number> {
     const settled = Number(
-      this.db.value(
+      (await this.db.value(
         `SELECT COALESCE(SUM(total_piasters), 0) FROM sales
          WHERE payment_method <> 'credit' AND occurred_at >= ? AND occurred_at < ?`,
         [fromIso, toIso],
-      ) ?? 0,
+      )) ?? 0,
     );
     const collected = Number(
-      this.db.value(
+      (await this.db.value(
         'SELECT COALESCE(SUM(amount_piasters), 0) FROM payments WHERE paid_at >= ? AND paid_at < ?',
         [fromIso, toIso],
-      ) ?? 0,
+      )) ?? 0,
     );
     return settled + collected;
   }
 
   /** The six dashboard KPI tiles. */
-  kpis(asOf = new Date()): Kpi[] {
-    const today = this.todayTotals(asOf);
-    const week = this.weekTotals(asOf);
+  async kpis(asOf = new Date()): Promise<Kpi[]> {
+    const today = await this.todayTotals(asOf);
+    const week = await this.weekTotals(asOf);
 
     const prevDayStart = addDays(startOfDay(asOf), -1);
-    const prevDay = this.totalsBetween(
+    const prevDay = await this.totalsBetween(
       prevDayStart.toISOString(),
       startOfDay(asOf).toISOString(),
     );
     const prevWeekStart = addDays(startOfDay(asOf), -13);
-    const prevWeek = this.totalsBetween(
+    const prevWeek = await this.totalsBetween(
       prevWeekStart.toISOString(),
       addDays(startOfDay(asOf), -6).toISOString(),
     );
 
     const weekStart = addDays(startOfDay(asOf), -6);
     const weekEnd = addDays(startOfDay(asOf), 1);
-    const collectedThisWeek = this.collectedBetween(weekStart.toISOString(), weekEnd.toISOString());
-    const collectedPrevWeek = this.collectedBetween(
+    const collectedThisWeek = await this.collectedBetween(
+      weekStart.toISOString(),
+      weekEnd.toISOString(),
+    );
+    const collectedPrevWeek = await this.collectedBetween(
       prevWeekStart.toISOString(),
       weekStart.toISOString(),
     );
 
     // Costs pro-rated to the same seven days the profit was earned in.
-    const expenses = this.#ops.expensesForRange(weekStart.toISOString(), weekEnd.toISOString());
+    const expenses = await this.#ops.expensesForRange(
+      weekStart.toISOString(),
+      weekEnd.toISOString(),
+    );
     const netProfit = week.profit - expenses;
-    const debt = this.#customers.debtTotals(asOf);
-    const debtLastWeek = this.outstandingAsOf(weekStart);
+    const debt = await this.#customers.debtTotals(asOf);
+    const debtLastWeek = await this.outstandingAsOf(weekStart);
 
     return [
       {
@@ -223,25 +232,29 @@ export class AnalyticsRepository {
    * Total receivables outstanding at a past instant — debts raised by then,
    * less payments received by then. Used for the week-on-week debt delta.
    */
-  outstandingAsOf(when: Date): number {
+  async outstandingAsOf(when: Date): Promise<number> {
     const iso = when.toISOString();
     const raised = Number(
-      this.db.value(
+      (await this.db.value(
         `SELECT COALESCE(SUM(principal_piasters), 0) FROM debts
          WHERE direction = 'receivable' AND opened_at <= ?`,
         [iso],
-      ) ?? 0,
+      )) ?? 0,
     );
     const settled = Number(
-      this.db.value('SELECT COALESCE(SUM(amount_piasters), 0) FROM payments WHERE paid_at <= ?', [
-        iso,
-      ]) ?? 0,
+      (await this.db.value(
+        'SELECT COALESCE(SUM(amount_piasters), 0) FROM payments WHERE paid_at <= ?',
+        [iso],
+      )) ?? 0,
     );
     return Math.max(0, raised - settled);
   }
 
   /** The four cards on الفواتير والأرباح for a date window. */
-  financeSummary(fromIso: string, toIso: string): {
+  async financeSummary(
+    fromIso: string,
+    toIso: string,
+  ): Promise<{
     invoiced: number;
     invoiceCount: number;
     sales: number;
@@ -249,14 +262,14 @@ export class AnalyticsRepository {
     expenses: number;
     netProfit: number;
     margin: number;
-  } {
-    const invoiceRow = this.db.get(
+  }> {
+    const invoiceRow = await this.db.get(
       `SELECT COALESCE(SUM(total_piasters), 0) AS total, COUNT(*) AS n
        FROM invoices WHERE issued_at >= ? AND issued_at <= ?`,
       [fromIso, toIso],
     );
-    const { sales, profit } = this.totalsBetween(fromIso, toIso);
-    const expenses = this.#ops.expensesForRange(fromIso, toIso);
+    const { sales, profit } = await this.totalsBetween(fromIso, toIso);
+    const expenses = await this.#ops.expensesForRange(fromIso, toIso);
     return {
       invoiced: Number(invoiceRow?.total ?? 0),
       invoiceCount: Number(invoiceRow?.n ?? 0),
@@ -269,18 +282,24 @@ export class AnalyticsRepository {
   }
 
   /** The financial-health score and its four meters (الإدارة العامة). */
-  financialHealth(asOf = new Date()): {
+  async financialHealth(asOf = new Date()): Promise<{
     score: number;
     /**
      * Raw values with the unit they are measured in. Formatting stays in the
      * UI layer — a repository that returns pre-rendered digits cannot honour
      * the numbering-system setting.
      */
-    metrics: Array<{ label: string; value: number; unit: 'percent' | 'times'; fill: number; color: string }>;
-  } {
-    const week = this.weekTotals(asOf);
-    const debt = this.#customers.debtTotals(asOf);
-    const expenses = this.#ops.expensesForRange(
+    metrics: Array<{
+      label: string;
+      value: number;
+      unit: 'percent' | 'times';
+      fill: number;
+      color: string;
+    }>;
+  }> {
+    const week = await this.weekTotals(asOf);
+    const debt = await this.#customers.debtTotals(asOf);
+    const expenses = await this.#ops.expensesForRange(
       addDays(startOfDay(asOf), -6).toISOString(),
       addDays(startOfDay(asOf), 1).toISOString(),
     );
@@ -288,7 +307,7 @@ export class AnalyticsRepository {
     const margin = marginPercent(week.sales, week.profit);
     const debtRatio = week.sales === 0 ? 0 : (debt.receivable / week.sales) * 100;
     const liquidity = week.sales === 0 ? 0 : clamp(((week.sales - expenses) / week.sales) * 100, 0, 100);
-    const stockTurns = this.#stockTurnover();
+    const stockTurns = await this.#stockTurnover();
 
     // A single headline number the owner can watch week to week: healthy
     // margin and liquidity push it up, debt exposure pulls it down.
@@ -331,12 +350,13 @@ export class AnalyticsRepository {
     };
   }
 
-  #stockTurnover(): number {
+  async #stockTurnover(): Promise<number> {
     const soldCost = Number(
-      this.db.value('SELECT COALESCE(SUM(cost_piasters * qty), 0) FROM sale_lines') ?? 0,
+      (await this.db.value('SELECT COALESCE(SUM(cost_piasters * qty), 0) FROM sale_lines')) ?? 0,
     );
     const onHandCost = Number(
-      this.db.value('SELECT COALESCE(SUM(cost_piasters * qty_on_hand), 0) FROM products') ?? 0,
+      (await this.db.value('SELECT COALESCE(SUM(cost_piasters * qty_on_hand), 0) FROM products')) ??
+        0,
     );
     if (onHandCost === 0) return 0;
     return soldCost / onHandCost;
