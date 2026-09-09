@@ -42,7 +42,7 @@ export function Debts() {
 
   if (!view) return null;
 
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
   const selected = view.list.find((d) => d.id === selectedId) ?? view.list[0] ?? null;
 
   return (

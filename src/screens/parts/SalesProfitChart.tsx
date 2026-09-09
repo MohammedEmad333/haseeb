@@ -37,7 +37,7 @@ export function SalesProfitChart({ points }: { points: readonly SeriesPoint[] })
   return (
     <figure style={{ margin: 0 }}>
       <figcaption className="hs-sr-only">
-        مبيعات وأرباح آخر سبعة أيام. الذروة {moneyRounded(peak)} جنيه.
+        مبيعات وأرباح آخر سبعة أيام. الذروة {moneyRounded(peak)} شيكل.
       </figcaption>
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}

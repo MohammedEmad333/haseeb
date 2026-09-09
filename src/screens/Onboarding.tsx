@@ -16,9 +16,7 @@ import { DEFAULT_VAT_RATE } from '@/domain/tax';
 const BUSINESS_TYPES = ['بقالة / سوبرماركت', 'مخبز', 'ملابس', 'قطع غيار', 'مطعم / كافيه'];
 
 const CURRENCIES = [
-  { code: 'EGP', label: 'جنيه مصري — ج.م', symbol: 'ج.م' },
-  { code: 'SAR', label: 'ريال سعودي — ر.س', symbol: 'ر.س' },
-  { code: 'AED', label: 'درهم إماراتي — د.إ', symbol: 'د.إ' },
+  { code: 'ILS', label: 'شيكل — ₪', symbol: '₪' },
 ];
 
 // What the app actually does. The design's third line promised one account

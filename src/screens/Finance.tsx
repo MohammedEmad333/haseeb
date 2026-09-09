@@ -51,7 +51,7 @@ export function Finance() {
   }, [sales, analytics, period, kind, statuses]);
 
   if (!view) return null;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   const toggleStatus = (status: InvoiceStatus): void => {
     setStatuses((current) => {

@@ -72,7 +72,7 @@ export function Wholesale() {
   }, [lines, catalogue]);
 
   const vatRate = profile?.vatRate ?? 14;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   const priced = useMemo(() => {
     const rows = builderLines.flatMap((line) => {

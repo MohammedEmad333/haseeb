@@ -37,7 +37,7 @@ export function Orders() {
   }, [ops, sales, direction]);
 
   if (!view) return null;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   return (
     <>
