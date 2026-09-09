@@ -17,6 +17,7 @@ import {
   type ReactNode,
 } from 'react';
 import { openHaseeb, resetToSeed, type Haseeb } from '@/db';
+import { isChunkLoadError } from '@/db/drivers';
 import type { BusinessProfile } from '@/db/types';
 import { getNumberingSystem, setNumberingSystem, type NumberingSystem } from '@/lib/format';
 
@@ -118,7 +119,17 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
     await handle.db.flush();
   }, [handle]);
 
-  const retry = useCallback(() => setAttempt((a) => a + 1), []);
+  const retry = useCallback(() => {
+    // A chunk that failed to load is errored in the module map for the life of
+    // the document: importing it again returns the same error without a
+    // request, so retrying in place would hand the user the same screen twice.
+    // A reload is a fresh module map, and the only thing that can work.
+    if (isChunkLoadError(error)) {
+      window.location.reload();
+      return;
+    }
+    setAttempt((a) => a + 1);
+  }, [error]);
 
   const setNumbering = useCallback(
     async (system: NumberingSystem) => {

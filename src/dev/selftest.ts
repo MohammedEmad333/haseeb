@@ -13,6 +13,7 @@
  */
 
 import { openHaseeb } from '@/db';
+import { isChunkLoadError } from '@/db/drivers';
 import { exportBackup, readBackup } from '@/lib/backup';
 
 export interface SelfTestResult {
@@ -129,7 +130,12 @@ export async function runDatabaseSelfTest(): Promise<SelfTestResult> {
     check('reopen finds the data', (await reopened.products.list()).length === products.length);
     await reopened.db.close();
   } catch (cause) {
-    check('self-test ran to completion', false, cause instanceof Error ? cause.message : String(cause));
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    check(
+      isChunkLoadError(cause) ? 'the driver chunk loaded' : 'self-test ran to completion',
+      false,
+      detail,
+    );
   }
 
   return { engine, passed: checks.every((c) => c.ok), checks };

@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { HaseebDatabase } from '@/db/database';
+import { isChunkLoadError } from '@/db/drivers';
 import { MemoryStore } from '@/db/storage';
 import { openHaseeb, seed } from '@/db';
 import { buildTaxQrPayload } from '@/lib/zatca';
@@ -119,5 +120,18 @@ describe('reminder deep links', () => {
     const href = whatsappHref('01022223344', 'تذكير بالسداد');
     expect(href.startsWith('https://wa.me/201022223344?text=')).toBe(true);
     expect(href).not.toContain(' ');
+  });
+});
+
+describe('chunk-load failures', () => {
+  it('are told apart from database failures, because only they need a reload', () => {
+    // Chromium's wording, and the two other engines', verbatim.
+    expect(isChunkLoadError(new Error('Failed to fetch dynamically imported module: https://localhost/assets/capacitor-C8.js'))).toBe(true);
+    expect(isChunkLoadError(new Error('Importing a module script failed.'))).toBe(true);
+    expect(isChunkLoadError(new Error('error loading dynamically imported module'))).toBe(true);
+
+    // A real database failure must not be answered with a page reload.
+    expect(isChunkLoadError(new Error('Failed in encryption /data/haseebSQLite.db not found'))).toBe(false);
+    expect(isChunkLoadError(new Error('unknown product prd-milk'))).toBe(false);
   });
 });
