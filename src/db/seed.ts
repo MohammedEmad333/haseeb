@@ -762,15 +762,19 @@ async function seedAuditHistory(db: HaseebDatabase): Promise<void> {
   );
 }
 
-/** Wipe every table and re-seed. Reachable from الإعدادات. */
-export async function resetToSeed(db: HaseebDatabase): Promise<void> {
+/**
+ * Wipe every table, returning the local database to an empty, first-run state.
+ * Reachable from الإعدادات — no demo data is written back, so a reset returns
+ * the app to onboarding with a clean slate.
+ */
+export async function wipeDatabase(db: HaseebDatabase): Promise<void> {
   await db.mutate(
     {
       entity: 'database',
       action: 'reset',
       actor: 'المدير',
       localOnly: true,
-      description: 'إعادة ضبط قاعدة البيانات المحلية إلى البيانات الافتتاحية',
+      description: 'إعادة ضبط قاعدة البيانات المحلية إلى حالة فارغة',
     },
     async (tx) => {
       for (const table of [
@@ -783,6 +787,5 @@ export async function resetToSeed(db: HaseebDatabase): Promise<void> {
       }
     },
   );
-  await seed(db);
   db.touch();
 }

@@ -55,7 +55,7 @@ export function PointOfSale() {
   }, [products, sales, analytics, customers, search]);
 
   const vatRate = profile?.vatRate ?? 14;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   const totals = useMemo(
     () =>

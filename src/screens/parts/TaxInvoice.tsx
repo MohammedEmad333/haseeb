@@ -25,7 +25,7 @@ export function TaxInvoice({
   const [qrError, setQrError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
   const vatRate = profile?.vatRate ?? 14;
 
   useEffect(() => {

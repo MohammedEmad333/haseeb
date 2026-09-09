@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { openHaseeb, resetToSeed, type Haseeb } from '@/db';
+import { openHaseeb, wipeDatabase, type Haseeb } from '@/db';
 import { isChunkLoadError } from '@/db/drivers';
 import type { BusinessProfile } from '@/db/types';
 import { getNumberingSystem, setNumberingSystem, type NumberingSystem } from '@/lib/format';
@@ -68,7 +68,9 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
     setStatus('opening');
     setError(null);
 
-    openHaseeb()
+    // The app ships with no demo data: a fresh install opens to an empty
+    // database and onboarding, not a pre-populated sample business.
+    openHaseeb({ seedIfEmpty: false })
       .then(async (h) => {
         if (cancelled) {
           await h.db.close();
@@ -115,7 +117,7 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(async () => {
     if (!handle) return;
-    await resetToSeed(handle.db);
+    await wipeDatabase(handle.db);
     await handle.db.flush();
   }, [handle]);
 

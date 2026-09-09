@@ -53,7 +53,7 @@ export async function openHaseeb(
 
 export { HaseebDatabase } from './database';
 export type { SqlDriver, SqlTx } from './drivers';
-export { seed, resetToSeed } from './seed';
+export { seed, wipeDatabase } from './seed';
 export * from './types';
 export {
   ProductRepository,

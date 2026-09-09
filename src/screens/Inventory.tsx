@@ -44,7 +44,7 @@ export function Inventory() {
   }, [products, category]);
 
   if (!view) return null;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   const columns: Column<Product>[] = [
     {

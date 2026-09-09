@@ -32,7 +32,7 @@ export function Manage() {
   }, [analytics, ops]);
 
   if (!view) return null;
-  const unit = profile?.currencyLabel ?? 'ج.م';
+  const unit = profile?.currencyLabel ?? '₪';
 
   return (
     <>
@@ -213,11 +213,11 @@ export function Manage() {
                   </Button>
                   <Button onClick={() => setConfirmReset(false)}>تراجع</Button>
                   <span className="hs-field__error" role="alert">
-                    ستُحذف كل الحركات المسجّلة وتُستبدل بالبيانات الافتتاحية.
+                    ستُحذف كل البيانات المسجّلة ويعود التطبيق إلى نقطة البداية.
                   </span>
                 </>
               ) : (
-                <Button onClick={() => setConfirmReset(true)}>إعادة الضبط للبيانات الافتتاحية</Button>
+                <Button onClick={() => setConfirmReset(true)}>إعادة ضبط قاعدة البيانات</Button>
               )}
             </div>
           </Can>
