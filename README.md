@@ -21,6 +21,8 @@ rest on the device.
 
 | Screen | Route | What it covers |
 |---|---|---|
+| إنشاء حساب المدير | first run | Names the owner, sets a passcode, shows the one-time recovery code |
+| تسجيل الدخول | when locked | Account picker, passcode, lockout after repeated failures, owner recovery |
 | تسجيل المنشأة | `#/onboarding` | Three-step business registration; creates the encrypted local database |
 | لوحة التحكم | `#/` | Six KPIs, seven-day sales/profit chart, channel donut, quick actions |
 | البيع المباشر | `#/pos` | Barcode scan or search, cart with steppers, cash or credit checkout |
@@ -29,7 +31,7 @@ rest on the device.
 | دفتر الديون | `#/debts` | Receivables and payables, aging, payment history, WhatsApp/SMS reminders |
 | الطلبات والفواتير | `#/orders` | Customer orders, purchase orders, printable tax invoice with QR |
 | المخزن | `#/inventory` | Stock table with alerts, categories, receiving, movement timeline |
-| الإدارة العامة | `#/manage` | Financial health, operating costs, permissions, audit trail, DB controls |
+| الإدارة العامة | `#/manage` | Financial health, operating costs, users and permissions, encrypted export/import, audit trail, DB controls |
 
 ## Stack and why
 
@@ -185,6 +187,67 @@ Passphrase mode is wired through the data layer and covered by tests; the
 onboarding flow currently creates a device-key database. Prompting for and
 caching a passphrase is a UX decision left to the product owner.
 
+## Accounts, and who can do what
+
+There is no cloud account, so there is nothing to sign up for and no password
+to be breached somewhere else. Instead every person who works on the device
+gets a **local account with a passcode**, and the app records their name
+against everything they do.
+
+**First run** asks for the manager's name and passcode and then shows a
+recovery code — once. With no server there is no reset e-mail: that code is
+the entire recovery story, which is why the screen will not continue until the
+owner confirms they have written it down.
+
+**Abilities, not roles.** Fourteen abilities (`src/domain/abilities.ts`) are
+the vocabulary; the five role presets — كاشير, أمين مخزن, محاسب, مندوب جملة,
+مالك — are only a starting point the owner edits per person. Every guard names
+an ability, never a role, so a shop can give its accountant stock access
+without inventing a job title for it.
+
+Enforcement is not cosmetic: `RequireAbility` refuses the route, so a screen a
+user cannot open is unreachable by typing its URL, not merely hidden from the
+navigation. The owner's grant is standing and cannot be edited away or
+suspended — a shop that could lock itself out of its own books would.
+
+**What the passcode protects, precisely:** someone picking up an unlocked
+shared device and opening a screen that is not theirs, or ringing up a sale
+under the manager's name. It is the lock on the till drawer. It is *not*
+protection against an attacker holding the device and its key store — four
+digits is ten thousand guesses and no amount of hashing changes that; the
+database's own encryption is what stands in that person's way. PBKDF2-SHA256
+(120,000 rounds) with a per-user salt makes each guess cost something, and five
+wrong attempts lock the account for five minutes so guessing at the keypad
+stops being viable.
+
+The session lives in memory only and is deliberately not persisted: on a shared
+device a session that survived a restart would mean whoever closed the app last
+night owns every sale rung up this morning. It also locks itself after ten
+minutes of no interaction.
+
+## Moving the shop between devices
+
+الإدارة العامة → «نقل البيانات بين الأجهزة».
+
+Export writes a single `.hsb` file: every table, sealed with AES-256-GCM under
+a passphrase the owner chooses (PBKDF2-SHA256, 210,000 rounds). It is a
+**row-level snapshot, not a copy of the database file** — which is what lets it
+cross between the two drivers, since a phone's SQLCipher file and the web's
+sealed image are not the same artifact. On a phone the file is written through
+the platform filesystem and handed to the share sheet; in a browser it
+downloads.
+
+The passphrase is stored nowhere. A file that leaves the device is useless
+without it, and a forgotten passphrase means a useless file — the screen says
+so before you type one.
+
+**Import replaces; it does not merge.** The receiving device is emptied and
+refilled from the file, accounts and passcodes included, and the screen shows
+what the file holds (and asks again) before that happens. Merging two ledgers
+that both moved on is a conflict-resolution problem with no safe automatic
+answer — two devices that each sold the last unit cannot both be right — and
+guessing silently would be worse than asking.
+
 ## Resetting the seed data
 
 Three ways, in increasing bluntness:
@@ -268,7 +331,9 @@ Sync is a queue plus a reconcile, and it is genuinely optional — nothing block
 on it. Local mutations accumulate in `sync_queue`; `OperationsRepository.markSynced`
 clears them once a peer confirms. The header pill and الإدارة العامة show the
 queue depth. No transport is implemented, because the product requirement is
-that the app works without one.
+that the app works without one — and because there is no account behind this
+app for a transport to authenticate. What actually crosses between devices
+today is the encrypted export file described above.
 
 ## Accessibility and RTL
 
@@ -311,7 +376,7 @@ print stylesheet that reduces the page to the tax invoice.
 
 ## What was verified, and how
 
-Beyond the 61 unit and integration tests, the built bundle was driven in
+Beyond the 89 unit and integration tests, the built bundle was driven in
 Chromium at 1440px and 390px:
 
 - All nine routes render with **zero console errors**.
@@ -331,9 +396,21 @@ Chromium at 1440px and 390px:
   database. CI boots an x86_64 emulator, installs the APK and reads the verdict
   from logcat — and fails the job if the app falls back to the WebAssembly
   driver on a device. Run it in a browser with `?selftest=1`.
+- **The whole account flow, end to end**: first launch demands a manager
+  account, rejects a sequential passcode and a mismatched confirmation, shows
+  the recovery code once and refuses to continue until it is acknowledged; the
+  owner adds an employee with a passcode and edits their abilities; that
+  employee signs in, sees only their own screens, is refused a forbidden route
+  typed into the address bar, and is not offered user management or data
+  export; a wrong passcode is refused. Then: export an encrypted backup,
+  fail to open it with the wrong passphrase, preview what it holds, restore it,
+  and find the imported accounts working and the import in the audit trail.
 - Accessibility: every interactive element has an accessible name, every table
-  a caption, one `h1` per screen, a visible focus ring on all 12 sampled tab
-  stops, and all touch targets ≥44px under `pointer: coarse`.
+  a caption, one `h1` per screen, and a visible focus ring on all 12 sampled
+  tab stops. Touch targets are measured **in a touch context** — the 44px rule
+  only applies under `pointer: coarse`, and measuring a mouse-driven desktop
+  against it just reports the design's own dimensions — and all eight routes
+  come back clean at 390px, with no horizontal scroll on any of them.
 - The print stylesheet reduces the page to the tax invoice alone.
 
 ## Known gaps
@@ -345,8 +422,16 @@ Chromium at 1440px and 390px:
   files with before shipping.
 - **The brand icon** is a raster crop with a white background. Ask the brand
   owner for a transparent SVG before release.
-- **Tauri and Capacitor scaffolding** is documented above but not committed,
-  since the generated platform folders belong to whoever builds them.
+- **Restore is not merge.** Importing a backup replaces the receiving device.
+  Two devices that both moved on cannot be reconciled automatically, and the
+  app does not pretend otherwise; if a shop needs two tills writing at once,
+  that needs a sync transport, not a bigger import button.
+- **The passcode is a till-drawer lock, not a safe.** It stops the wrong person
+  using an unlocked shared device. It does not stop someone holding the device
+  and its key store — see the honest note above.
+- **Tauri scaffolding** is documented above but not committed, since the
+  generated platform folder belongs to whoever builds it. The Android project
+  *is* committed, because CI builds the APK from it.
 
 ## Licence
 

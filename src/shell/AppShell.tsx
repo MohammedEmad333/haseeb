@@ -10,6 +10,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { SCREENS, MOBILE_TABS } from './screens';
 import { useHaseeb } from '@/state/HaseebProvider';
+import { useSession } from '@/state/SessionProvider';
 import { Meter, cx } from '@/ui/primitives';
 import { NOUNS, counted, initial, num } from '@/lib/format';
 import './shell.css';
@@ -42,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { profile, search, setSearch, syncPending } = useHaseeb();
+  const { account, signOut } = useSession();
   const navigate = useNavigate();
 
   return (
@@ -102,15 +104,22 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         <div className="hs-topbar__user">
           <div style={{ textAlign: 'end' }}>
             <div style={{ fontSize: 'var(--hs-fs-cell)', fontWeight: 500 }}>
-              {profile?.name ?? 'حسيب'}
+              {account?.name ?? profile?.name ?? 'حسيب'}
             </div>
             <div style={{ fontSize: 'var(--hs-fs-micro)', color: 'var(--hs-on-dark-subtle)' }}>
-              مدير النظام
+              {account?.role ?? 'مدير النظام'}
             </div>
           </div>
-          <span className="hs-topbar__avatar" aria-hidden>
-            {initial(profile?.name ?? 'حسيب')}
-          </span>
+          <button
+            type="button"
+            onClick={signOut}
+            title={`خروج · ${account?.name ?? ''}`}
+            aria-label="تسجيل الخروج"
+            className="hs-topbar__avatar"
+            style={{ cursor: 'pointer', font: 'inherit' }}
+          >
+            {initial(account?.name ?? profile?.name ?? 'حسيب')}
+          </button>
         </div>
       </div>
     </header>
@@ -120,9 +129,10 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
 // ---------------------------------------------------------------------------
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
+  const { can } = useSession();
   return (
     <>
-      {SCREENS.map((screen) => (
+      {SCREENS.filter((screen) => can(screen.requires)).map((screen) => (
         <NavLink
           key={screen.id}
           to={screen.path}
@@ -199,7 +209,10 @@ function StorageCard() {
 
 function MobileTabBar({ onMore }: { onMore: () => void }) {
   const location = useLocation();
-  const tabs = MOBILE_TABS.map((id) => SCREENS.find((s) => s.id === id)!);
+  const { can } = useSession();
+  const tabs = MOBILE_TABS.map((id) => SCREENS.find((s) => s.id === id)!).filter((s) =>
+    can(s.requires),
+  );
 
   return (
     <nav className="hs-tabbar" aria-label="التنقل السريع">
@@ -231,9 +244,47 @@ function MobileTabBar({ onMore }: { onMore: () => void }) {
 
 function NewSaleFab() {
   const navigate = useNavigate();
+  const { can } = useSession();
+  if (!can('pos.sell')) return null;
   return (
     <button type="button" className="hs-fab" onClick={() => navigate('/pos')} aria-label="بيع جديد">
       <span aria-hidden>+</span>
+    </button>
+  );
+}
+
+function SwitchUser({ onDone }: { onDone: () => void }) {
+  const { account, signOut } = useSession();
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        signOut();
+        onDone();
+      }}
+      className="hs-row"
+      style={{
+        gap: 'var(--hs-sp-5)',
+        width: '100%',
+        minHeight: 'var(--hs-touch)',
+        padding: 'var(--hs-sp-5) var(--hs-sp-6)',
+        marginBlockEnd: 'var(--hs-sp-5)',
+        border: '1px solid var(--hs-border)',
+        borderRadius: 'var(--hs-r-tile)',
+        background: 'var(--hs-surface)',
+        cursor: 'pointer',
+        font: 'inherit',
+        textAlign: 'start',
+      }}
+    >
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 'var(--hs-fs-cell)', fontWeight: 600 }}>
+          {account?.name}
+        </span>
+        <span style={{ display: 'block', fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)' }}>
+          تبديل المستخدم · خروج
+        </span>
+      </span>
     </button>
   );
 }
@@ -280,6 +331,7 @@ function NavDrawer({ onClose }: { onClose: () => void }) {
         </div>
         <NavItems onNavigate={onClose} />
         <div style={{ flex: 1 }} />
+        <SwitchUser onDone={onClose} />
         <StorageCard />
       </div>
     </>

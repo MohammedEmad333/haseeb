@@ -266,15 +266,14 @@ export class OperationsRepository {
     );
   }
 
-  /** Record an encrypted local backup in the audit trail. */
-  async recordBackup(): Promise<void> {
+  /** Record an encrypted backup in the audit trail, credited to whoever took it. */
+  async recordBackup(description = 'نسخة احتياطية مشفّرة للقاعدة المحلية'): Promise<void> {
     await this.db.mutate(
       {
         entity: 'database',
         entityId: newId(),
         action: 'backup',
-        actor: 'النظام',
-        description: 'نسخة احتياطية مشفّرة للقاعدة المحلية',
+        description,
       },
       async () => undefined,
     );

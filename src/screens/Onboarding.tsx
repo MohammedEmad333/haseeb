@@ -21,10 +21,14 @@ const CURRENCIES = [
   { code: 'AED', label: 'درهم إماراتي — د.إ', symbol: 'د.إ' },
 ];
 
+// What the app actually does. The design's third line promised one account
+// across devices; there is no server behind this app, so what crosses between
+// them is an encrypted file the owner exports — and the copy says that
+// instead of implying a sync that does not exist.
 const BENEFITS = [
   'يعمل دون إنترنت — قاعدة بيانات محلية مشفّرة',
-  'نفس الحساب على الجوال والويب وسطح المكتب',
-  'مزامنة مشفّرة اختيارية عند الحاجة',
+  'حساب لكل موظف على الجهاز، بصلاحيات محدّدة',
+  'نقل البيانات بين الأجهزة بملف مشفّر تصدّره بنفسك',
 ];
 
 interface Errors {

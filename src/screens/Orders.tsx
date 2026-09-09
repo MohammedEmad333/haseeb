@@ -132,12 +132,19 @@ function OrderRow({ order, onAdvance }: { order: Order; onAdvance: () => void | 
         <span style={{ display: 'block', fontSize: 'var(--hs-fs-body-lg)', fontWeight: 600 }}>
           {prefix} #{order.orderNo} — {order.counterpartyName}
         </span>
+        {/* Each figure is its own numeric run: .hs-num does not break inside
+            a number, so wrapping the whole meta line in it made a three-part
+            sentence unbreakable and scrolled a narrow screen sideways. */}
         <span
-          className="hs-num"
           style={{ display: 'block', fontSize: 'var(--hs-fs-meta)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}
         >
-          {order.itemCount > 0 ? `${counted(order.itemCount, NOUNS.item)} · ` : ''}
-          {dateAndTime(order.placedAt)}
+          {order.itemCount > 0 ? (
+            <>
+              <span className="hs-num">{counted(order.itemCount, NOUNS.item)}</span>
+              {' · '}
+            </>
+          ) : null}
+          <span className="hs-num">{dateAndTime(order.placedAt)}</span>
           {order.fulfilment ? ` · ${order.fulfilment}` : ''}
         </span>
       </span>

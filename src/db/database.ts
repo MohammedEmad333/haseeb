@@ -31,9 +31,26 @@ export type OpenOptions = OpenDriverOptions;
 export class HaseebDatabase {
   #driver: SqlDriver;
   #listeners = new Set<() => void>();
+  /**
+   * Who the audit trail credits for a change.
+   *
+   * Set once when a user signs in, rather than passed down through every
+   * repository call: an actor that each call site has to remember is an actor
+   * that some call site will forget, and «كل عملية تُسجَّل» would quietly
+   * become «معظم العمليات».
+   */
+  #actor = 'النظام';
 
   private constructor(driver: SqlDriver) {
     this.#driver = driver;
+  }
+
+  setActor(name: string): void {
+    this.#actor = name;
+  }
+
+  get actor(): string {
+    return this.#actor;
   }
 
   static async open(options: OpenOptions = {}): Promise<HaseebDatabase> {
@@ -81,7 +98,7 @@ export class HaseebDatabase {
   async mutate<T>(audit: AuditIntent, work: (tx: SqlTx) => Promise<T>): Promise<T> {
     const result = await this.#driver.transaction(async (tx) => {
       const value = await work(tx);
-      await recordAudit(tx, audit);
+      await recordAudit(tx, { ...audit, actor: audit.actor ?? this.#actor });
       if (!audit.localOnly) await enqueueSync(tx, audit);
       return value;
     });
@@ -132,7 +149,7 @@ async function recordAudit(tx: SqlTx, audit: AuditIntent): Promise<void> {
       audit.entityId ?? '',
       audit.action,
       audit.description,
-      audit.actor ?? 'المدير',
+      audit.actor ?? 'النظام',
       audit.payload === undefined ? '' : JSON.stringify(audit.payload),
       nowIso(),
     ],

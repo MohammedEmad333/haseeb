@@ -196,6 +196,10 @@ export const NOUNS = {
   operation: { one: 'عملية', two: 'عمليتان', few: 'عمليات', many: 'عملية' },
   day: { one: 'يوم', two: 'يومان', few: 'أيام', many: 'يوماً' },
   unit: { one: 'وحدة', two: 'وحدتان', few: 'وحدات', many: 'وحدة' },
+  sale: { one: 'بيعة', two: 'بيعتان', few: 'مبيعات', many: 'بيعة' },
+  user: { one: 'مستخدم', two: 'مستخدمان', few: 'مستخدمون', many: 'مستخدماً' },
+  letter: { one: 'حرف', two: 'حرفان', few: 'حروف', many: 'حرفاً' },
+  digit: { one: 'خانة', two: 'خانتان', few: 'خانات', many: 'خانة' },
 } as const satisfies Record<string, ArabicForms>;
 
 /** First letter of a name, for avatar tiles. */

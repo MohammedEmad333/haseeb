@@ -9,10 +9,12 @@ import { SalesRepository } from './repositories/sales';
 import { CustomerRepository } from './repositories/customers';
 import { OperationsRepository } from './repositories/operations';
 import { AnalyticsRepository } from './repositories/analytics';
+import { AccountRepository } from './repositories/accounts';
 import { seed } from './seed';
 
 export interface Haseeb {
   db: HaseebDatabase;
+  accounts: AccountRepository;
   products: ProductRepository;
   sales: SalesRepository;
   customers: CustomerRepository;
@@ -23,6 +25,7 @@ export interface Haseeb {
 export function repositories(db: HaseebDatabase): Haseeb {
   return {
     db,
+    accounts: new AccountRepository(db),
     products: new ProductRepository(db),
     sales: new SalesRepository(db),
     customers: new CustomerRepository(db),
@@ -52,4 +55,12 @@ export { HaseebDatabase } from './database';
 export type { SqlDriver, SqlTx } from './drivers';
 export { seed, resetToSeed } from './seed';
 export * from './types';
-export { ProductRepository, SalesRepository, CustomerRepository, OperationsRepository, AnalyticsRepository };
+export {
+  ProductRepository,
+  SalesRepository,
+  CustomerRepository,
+  OperationsRepository,
+  AnalyticsRepository,
+  AccountRepository,
+};
+export type { Account, SignInResult } from './repositories/accounts';

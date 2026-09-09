@@ -197,7 +197,6 @@ export function Inventory() {
               productId: receiving.id,
               kind: 'purchase',
               qty,
-              actor: 'أمين المخزن',
               counterparty: supplier,
             });
             await db?.flush();

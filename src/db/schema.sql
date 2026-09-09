@@ -185,14 +185,24 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_period ON expenses (period);
 
+-- A staff row is also a sign-in account. `pin_hash` empty means the account
+-- exists but cannot sign in yet — the owner has not given it a passcode.
 CREATE TABLE IF NOT EXISTS staff (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  role       TEXT NOT NULL,
-  scope      TEXT NOT NULL,
-  active     INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  role            TEXT NOT NULL,
+  role_key        TEXT NOT NULL DEFAULT 'cashier',
+  scope           TEXT NOT NULL,
+  active          INTEGER NOT NULL DEFAULT 1,
+  is_owner        INTEGER NOT NULL DEFAULT 0,
+  pin_hash        TEXT NOT NULL DEFAULT '',
+  pin_salt        TEXT NOT NULL DEFAULT '',
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  locked_until    TEXT,
+  last_login_at   TEXT,
+  created_at      TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_staff_active ON staff (active);
 
 CREATE TABLE IF NOT EXISTS permissions (
   staff_id TEXT NOT NULL REFERENCES staff (id) ON DELETE CASCADE,

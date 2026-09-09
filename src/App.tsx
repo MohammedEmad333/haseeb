@@ -1,6 +1,12 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { HaseebProvider, useHaseeb } from '@/state/HaseebProvider';
+import { SessionProvider, useSession } from '@/state/SessionProvider';
 import { AppShell } from '@/shell/AppShell';
+import { RequireAbility } from '@/shell/Guard';
+import { SignIn } from '@/screens/auth/SignIn';
+import { OwnerSetup } from '@/screens/auth/OwnerSetup';
+import { SCREENS } from '@/shell/screens';
+import type { Ability } from '@/domain/abilities';
 import { Button, ErrorState, SkeletonCard } from '@/ui/primitives';
 import { AutoGrid } from '@/ui/composites';
 import { Dashboard } from '@/screens/Dashboard';
@@ -19,7 +25,9 @@ export function App() {
     // Capacitor shells, where there is no server to rewrite paths.
     <HashRouter>
       <HaseebProvider>
-        <Gate />
+        <SessionProvider>
+          <Gate />
+        </SessionProvider>
       </HaseebProvider>
     </HashRouter>
   );
@@ -32,6 +40,7 @@ export function App() {
  */
 function Gate() {
   const { status, error, retry, profile } = useHaseeb();
+  const { account, ready, needsOwnerSetup } = useSession();
 
   if (status === 'opening') return <BootSkeleton />;
 
@@ -60,24 +69,104 @@ function Gate() {
     );
   }
 
+  // Nothing behind the till is reachable without a session: no manager account
+  // yet means set one up, and no signed-in user means sign in.
+  if (!ready) return <BootSkeleton />;
+  if (needsOwnerSetup) return <OwnerSetup />;
+  if (!account) return <SignIn />;
+
   return (
     <AppShell>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/pos" element={<PointOfSale />} />
-        <Route path="/finance" element={<Finance />} />
-        <Route path="/wholesale" element={<Wholesale />} />
-        <Route path="/debts" element={<Debts />} />
-        <Route path="/orders" element={<Orders />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/manage" element={<Manage />} />
+        <Route
+          path="/"
+          element={
+            <RequireAbility ability={requires('dashboard')}>
+              <Dashboard />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/pos"
+          element={
+            <RequireAbility ability={requires('pos')}>
+              <PointOfSale />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/finance"
+          element={
+            <RequireAbility ability={requires('finance')}>
+              <Finance />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/wholesale"
+          element={
+            <RequireAbility ability={requires('wholesale')}>
+              <Wholesale />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/debts"
+          element={
+            <RequireAbility ability={requires('debts')}>
+              <Debts />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/orders"
+          element={
+            <RequireAbility ability={requires('orders')}>
+              <Orders />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/inventory"
+          element={
+            <RequireAbility ability={requires('inventory')}>
+              <Inventory />
+            </RequireAbility>
+          }
+        />
+        <Route
+          path="/manage"
+          element={
+            <RequireAbility ability={requires('manage')}>
+              <Manage />
+            </RequireAbility>
+          }
+        />
         {/* Reachable after registration too — it is also the place to correct
             the name, tax number or VAT rate that print on every invoice. */}
-        <Route path="/onboarding" element={<Onboarding />} />
+        <Route
+          path="/onboarding"
+          element={
+            <RequireAbility ability="staff.manage">
+              <Onboarding />
+            </RequireAbility>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AppShell>
   );
+}
+
+/**
+ * The ability a route needs, read from the same list that builds the
+ * navigation — so a screen's link and its route cannot drift apart and offer
+ * a user a destination that then bounces them away.
+ */
+function requires(id: string): Ability {
+  const screen = SCREENS.find((s) => s.id === id);
+  if (!screen) throw new Error(`unknown screen ${id}`);
+  return screen.requires;
 }
 
 function BootSkeleton() {

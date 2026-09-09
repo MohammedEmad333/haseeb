@@ -414,6 +414,20 @@
 }
 
 /* ---- Field ------------------------------------------------------------- */
+/* The box itself stays small — its label is part of the target, which is what
+   a thumb actually hits — but it grows on a touch device all the same. */
+.hs-check {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: var(--hs-emerald);
+  cursor: pointer;
+}
+
+.hs-check-row {
+  align-items: center;
+}
+
 .hs-field__label {
   display: block;
   font-size: var(--hs-fs-cell);
@@ -522,11 +536,25 @@
 
   .hs-tab {
     padding-block: var(--hs-sp-6);
+    min-width: var(--hs-touch);
   }
 
-  /* The switch keeps its 38×22 track; the control around it grows to 44px so
-     a thumb has something to hit. */
+  .hs-check {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* The label is the tap target for a checkbox — clicking the words toggles
+     it — so the row, not the box, is what has to clear 44px. */
+  .hs-check-row {
+    min-height: var(--hs-touch);
+  }
+
+  /* The switch keeps its 38×22 track; the control around it grows to 44px in
+     both axes so a thumb has something to hit — height alone still leaves a
+     38px-wide target. */
   .hs-toggle {
+    width: var(--hs-touch);
     height: var(--hs-touch);
     background: none;
     border-radius: var(--hs-r-control);
@@ -535,7 +563,7 @@
     content: '';
     position: absolute;
     inset-block: 11px;
-    inset-inline: 0;
+    inset-inline: 3px;
     width: 38px;
     height: 22px;
     border-radius: var(--hs-r-pill);
@@ -544,9 +572,13 @@
   }
   .hs-toggle::after {
     inset-block-start: 14px;
+    inset-inline-start: 6px;
   }
   .hs-toggle[aria-checked='true'] {
     background: none;
+  }
+  .hs-toggle[aria-checked='true']::after {
+    inset-inline-start: 22px;
   }
   .hs-toggle[aria-checked='true']::before {
     background: var(--hs-emerald);

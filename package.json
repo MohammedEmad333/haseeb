@@ -21,6 +21,8 @@
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
     "@capacitor/core": "^7.6.9",
+    "@capacitor/filesystem": "^7.1.8",
+    "@capacitor/share": "^7.0.4",
     "@fontsource/ibm-plex-mono": "^5.0.13",
     "@fontsource/ibm-plex-sans-arabic": "^5.0.20",
     "idb-keyval": "^6.2.1",

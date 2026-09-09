@@ -65,7 +65,7 @@ export function TaxInvoice({
         }}
       >
         <div className="hs-row" style={{ justifyContent: 'space-between', gap: 'var(--hs-sp-6)', alignItems: 'flex-start' }}>
-          <div className="hs-row" style={{ gap: 'var(--hs-sp-5)' }}>
+          <div className="hs-row" style={{ gap: 'var(--hs-sp-5)', minWidth: 0 }}>
             <span
               style={{
                 width: 38,
@@ -80,11 +80,15 @@ export function TaxInvoice({
             >
               <img src="./assets/haseeb-icon.png" alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 3 }} />
             </span>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>{profile?.name ?? 'حسيب'}</div>
-              <div className="hs-num" style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}>
-                س.ت {profile?.commercialReg ? digits(profile.commercialReg) : '—'} · الرقم الضريبي{' '}
-                {profile?.taxNumber ? digits(profile.taxNumber) : '—'}
+              {/* Only the registration numbers are numeric runs. Marking the
+                  whole line .hs-num made it unbreakable and pushed the invoice
+                  past the edge of a phone. */}
+              <div style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}>
+                س.ت <span className="hs-num">{profile?.commercialReg ? digits(profile.commercialReg) : '—'}</span>
+                {' · '}الرقم الضريبي{' '}
+                <span className="hs-num">{profile?.taxNumber ? digits(profile.taxNumber) : '—'}</span>
               </div>
             </div>
           </div>

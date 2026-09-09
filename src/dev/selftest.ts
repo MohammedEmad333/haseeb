@@ -13,6 +13,7 @@
  */
 
 import { openHaseeb } from '@/db';
+import { exportBackup, readBackup } from '@/lib/backup';
 
 export interface SelfTestResult {
   engine: string;
@@ -84,6 +85,40 @@ export async function runDatabaseSelfTest(): Promise<SelfTestResult> {
       const salesAfter = (await h.sales.recentSales(500)).length;
       check('over-stock sale rolls back', salesAfter === salesBefore);
     }
+
+    // Accounts: PBKDF2 and WebCrypto behave the same in an Android WebView as
+    // in a browser, but the passcode is the thing that stands between a shop
+    // and its books, so the device says so itself rather than being trusted.
+    const { account: owner } = await h.accounts.createOwner('المدير', '4826');
+    check('owner account created', owner.isOwner && owner.hasPin);
+    check('right passcode signs in', (await h.accounts.signIn(owner.id, '4826')).ok);
+    check('wrong passcode is refused', !(await h.accounts.signIn(owner.id, '9999')).ok);
+
+    const staff = await h.accounts.createStaff({
+      name: 'كاشير الاختبار',
+      roleKey: 'cashier',
+      pin: '1379',
+      actor: 'المدير',
+    });
+    check(
+      'employee holds only its own abilities',
+      staff.abilities.includes('pos.sell') && !staff.abilities.includes('finance.read'),
+      staff.abilities.join(','),
+    );
+
+    // The backup is a row-level snapshot, so it exercises every table through
+    // this driver in one go.
+    const { bytes, manifest } = await exportBackup(h.db, 'كلمة-سر-الاختبار');
+    check('backup covers the catalogue', manifest.counts.products === products.length);
+    const reread = await readBackup(bytes, 'كلمة-سر-الاختبار');
+    check('backup reads back', reread.manifest.business === profile?.name);
+    let refused = false;
+    try {
+      await readBackup(bytes, 'كلمة-سر-خاطئة');
+    } catch {
+      refused = true;
+    }
+    check('backup refuses a wrong passphrase', refused);
 
     await h.db.flush();
 

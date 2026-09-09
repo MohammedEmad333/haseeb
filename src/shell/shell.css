@@ -151,6 +151,19 @@
   flex: none;
 }
 
+/*
+ * On touch the avatar is not decoration — it is the sign-out control, added
+ * with the account system — so it takes the full 44px rather than the
+ * design's 34px badge, which was never a button.
+ */
+@media (pointer: coarse) {
+  .hs-topbar__avatar {
+    width: var(--hs-touch);
+    height: var(--hs-touch);
+    border-radius: 14px;
+  }
+}
+
 .hs-topbar__menu {
   display: none;
   appearance: none;
@@ -257,7 +270,10 @@
 }
 .hs-tabbar__inner {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* minmax(0, …) rather than 1fr: a grid column's automatic minimum is its
+     content, so the longest label would otherwise push the bar past a narrow
+     viewport and scroll the whole page sideways. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 .hs-tabbar__item {
   display: flex;
@@ -340,7 +356,20 @@
   .hs-sidebar {
     display: none;
   }
-  .hs-topbar__menu {
+  /*
+ * On touch the avatar is not decoration — it is the sign-out control, added
+ * with the account system — so it takes the full 44px rather than the
+ * design's 34px badge, which was never a button.
+ */
+@media (pointer: coarse) {
+  .hs-topbar__avatar {
+    width: var(--hs-touch);
+    height: var(--hs-touch);
+    border-radius: 14px;
+  }
+}
+
+.hs-topbar__menu {
     display: flex;
   }
   .hs-topbar {

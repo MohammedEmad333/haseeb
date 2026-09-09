@@ -16,3 +16,6 @@ ios/
 .env
 *.jks
 *.keystore
+
+# TypeScript incremental build state
+*.tsbuildinfo

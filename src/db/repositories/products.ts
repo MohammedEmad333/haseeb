@@ -80,7 +80,7 @@ export class ProductRepository {
     return (await this.list()).filter((p) => p.status === 'critical').length;
   }
 
-  async updatePrice(id: string, price: number, actor = 'المدير'): Promise<void> {
+  async updatePrice(id: string, price: number, actor?: string): Promise<void> {
     const before = await this.byId(id);
     if (!before) throw new Error(`unknown product ${id}`);
     await this.db.mutate(
@@ -121,7 +121,7 @@ export class ProductRepository {
         entity: 'stock_movement',
         entityId: input.productId,
         action: input.kind,
-        actor: input.actor ?? 'المدير',
+        ...(input.actor ? { actor: input.actor } : {}),
         description: `${MOVEMENT_LABEL[input.kind]} — ${product.name} (${delta > 0 ? '+' : '−'}${Math.abs(delta)})`,
         payload: { productId: input.productId, delta, qtyAfter },
       },
@@ -137,7 +137,7 @@ export class ProductRepository {
             input.kind,
             delta,
             qtyAfter,
-            input.actor ?? '',
+            input.actor ?? this.db.actor,
             input.counterparty ?? '',
             input.note ?? '',
             at,

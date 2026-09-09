@@ -36,10 +36,58 @@ function splitVatInclusive(total: number, rate = 14): { subtotal: number; vat: n
   return { subtotal: total - vat, vat };
 }
 
+/**
+ * A seeded timestamp, `daysAgo` days back at the given time of day — never in
+ * the future.
+ *
+ * The times of day are shop hours (a sale at 09:41, a delivery at 08:20). Open
+ * the app at one in the morning and those are still hours away, so a naive
+ * `setHours` seeds tomorrow's trade as though it had already happened: the
+ * sales log sorts wrongly and the dashboard shows takings nobody has taken.
+ *
+ * Anything that would land ahead of now is compressed proportionally into the
+ * part of today that has actually elapsed, which keeps the events in order
+ * and keeps every one of them in the past.
+ */
 function at(daysAgo: number, hour = 12, minute = 0): string {
-  const d = new Date();
+  const now = new Date();
+  const d = new Date(now);
   d.setDate(d.getDate() - daysAgo);
   d.setHours(hour, minute, 0, 0);
+
+  if (d.getTime() <= now.getTime()) return d.toISOString();
+
+  const startOfDay = new Date(d);
+  startOfDay.setHours(0, 0, 0, 0);
+  const elapsed = now.getTime() - startOfDay.getTime();
+  const intended = d.getTime() - startOfDay.getTime();
+  const scaled = Math.floor((intended / (24 * 60 * 60 * 1000)) * Math.max(0, elapsed - 1000));
+  return new Date(startOfDay.getTime() + scaled).toISOString();
+}
+
+/** The first instant of the current calendar month. */
+function monthStart(): Date {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
+}
+
+/**
+ * A timestamp inside the current month, for the takings «محصّل هذا الشهر»
+ * counts. Spread across the part of the month that has elapsed, so the figure
+ * is the same whether the app is first opened on the 2nd or the 28th.
+ */
+function inThisMonth(index: number, total: number): string {
+  const start = monthStart().getTime();
+  const now = Date.now();
+  const span = Math.max(1, now - start - 1000);
+  return new Date(start + Math.floor((span * (index + 1)) / (total + 1))).toISOString();
+}
+
+/** A timestamp safely before the current month, so it is never counted in it. */
+function beforeThisMonth(daysBefore: number): string {
+  const d = monthStart();
+  d.setDate(d.getDate() - daysBefore);
+  d.setHours(13, 0, 0, 0);
   return d.toISOString();
 }
 
@@ -133,21 +181,25 @@ const EXTRA_DEBTORS: Array<{ name: string; phone: string; owed: number; dueDaysA
  * «٩,٦٤٠ · ٢٣ سداداً» once the nine already implied by the balances above
  * are included.
  */
-const COLLECTIONS: Array<[string, number, string, number]> = [
-  ['cus-extra-1', 520, 'cash', 0],
-  ['cus-extra-2', 480, 'wallet', 1],
-  ['cus-extra-3', 450, 'cash', 1],
-  ['cus-extra-4', 430, 'transfer', 2],
-  ['cus-extra-5', 410, 'cash', 2],
-  ['cus-extra-6', 390, 'card', 3],
-  ['cus-extra-7', 370, 'cash', 3],
-  ['cus-extra-8', 350, 'wallet', 4],
-  ['cus-extra-9', 330, 'cash', 4],
-  ['cus-extra-10', 310, 'transfer', 5],
-  ['cus-extra-11', 290, 'cash', 5],
-  ['cus-extra-12', 270, 'wallet', 6],
-  ['cus-extra-13', 250, 'cash', 6],
-  ['cus-nile', 480, 'card', 7],
+const COLLECTIONS: Array<[string, number, string]> = [
+  ['cus-extra-1', 520, 'cash'],
+  ['cus-extra-2', 480, 'wallet'],
+  ['cus-extra-3', 450, 'cash'],
+  ['cus-extra-4', 430, 'transfer'],
+  ['cus-extra-5', 410, 'cash'],
+  ['cus-extra-6', 390, 'card'],
+  ['cus-extra-7', 370, 'cash'],
+  ['cus-extra-8', 350, 'wallet'],
+  ['cus-extra-9', 330, 'cash'],
+  ['cus-extra-10', 310, 'transfer'],
+  ['cus-extra-11', 290, 'cash'],
+  ['cus-extra-12', 270, 'wallet'],
+  ['cus-extra-13', 250, 'cash'],
+  ['cus-nile', 480, 'card'],
+  ['cus-extra-1', 230, 'cash'],
+  ['cus-extra-4', 210, 'wallet'],
+  ['cus-extra-7', 170, 'cash'],
+  ['cus-extra-10', 150, 'transfer'],
 ];
 
 const EXPENSES = [
@@ -158,11 +210,25 @@ const EXPENSES = [
   { label: 'صيانة ومتنوعة', amount: 450, color: '#CBD5E1' },
 ];
 
-const STAFF = [
-  { id: 'stf-nada', name: 'ندى مصطفى', role: 'كاشير — وردية صباحية', scope: 'بيع فقط', active: true, abilities: ['pos.sell'] },
-  { id: 'stf-tarek', name: 'طارق حسن', role: 'أمين مخزن', scope: 'مخزن + توريد', active: true, abilities: ['inventory.read', 'inventory.write', 'orders.receive'] },
-  { id: 'stf-sara', name: 'سارة عادل', role: 'محاسبة', scope: 'تقارير مالية', active: true, abilities: ['finance.read', 'invoices.write'] },
-  { id: 'stf-youssef', name: 'يوسف كامل', role: 'مندوب جملة', scope: 'موقوف', active: false, abilities: [] },
+/**
+ * The staff the design lists, seeded as real sign-in accounts — but without
+ * passcodes. An account with no passcode cannot sign in, so a fresh install
+ * ships no usable credentials; the owner hands each person a code from
+ * الإدارة العامة.
+ */
+const STAFF: Array<{
+  id: string;
+  name: string;
+  role: string;
+  roleKey: string;
+  scope: string;
+  active: boolean;
+  abilities: string[];
+}> = [
+  { id: 'stf-nada', name: 'ندى مصطفى', role: 'كاشير — وردية صباحية', roleKey: 'cashier', scope: 'بيع فقط', active: true, abilities: ['pos.sell', 'pos.credit', 'inventory.read', 'orders.read'] },
+  { id: 'stf-tarek', name: 'طارق حسن', role: 'أمين مخزن', roleKey: 'storekeeper', scope: 'مخزن + توريد', active: true, abilities: ['inventory.read', 'inventory.write', 'orders.read', 'orders.receive'] },
+  { id: 'stf-sara', name: 'سارة عادل', role: 'محاسبة', roleKey: 'accountant', scope: 'تقارير مالية', active: true, abilities: ['finance.read', 'invoices.write', 'debts.read', 'debts.collect', 'orders.read'] },
+  { id: 'stf-youssef', name: 'يوسف كامل', role: 'مندوب جملة', roleKey: 'wholesaleRep', scope: 'موقوف', active: false, abilities: [] },
 ];
 
 /**
@@ -567,52 +633,52 @@ async function seedDebtLedger(tx: SqlTx, extraIds: string[]): Promise<void> {
     );
   };
   const payment = async (
-    customer: string, pounds: number, method: string, daysAgo: number,
+    customer: string, pounds: number, method: string, paidAt: string,
   ): Promise<void> => {
     await tx.execute(
       `INSERT INTO payments (id, debt_id, customer_id, amount_piasters, method, paid_at, note)
        VALUES (?, NULL, ?, ?, ?, ?, '')`,
-      [newId(), customer, P(pounds), method, at(daysAgo, 13)],
+      [newId(), customer, P(pounds), method, paidAt],
     );
   };
 
   // محمود عبد الله — the fully specified ledger, outstanding ١,٤٥٠, due 12 days ago.
   await debt('cus-mahmoud', 1450, 19, 12, 'فاتورة INV-2479');
   await debt('cus-mahmoud', 800, 35, 28, 'فاتورة INV-2465');
-  await payment('cus-mahmoud', 500, 'cash', 12);
-  await payment('cus-mahmoud', 300, 'wallet', 27);
+  await payment('cus-mahmoud', 500, 'cash', beforeThisMonth(2));
+  await payment('cus-mahmoud', 300, 'wallet', beforeThisMonth(17));
 
   // The other named debtors, at the balances and aging the design states.
   await debt('cus-sayed', 1320, 22, -4, 'رصيد مفتوح');
-  await payment('cus-sayed', 400, 'transfer', 4);
+  await payment('cus-sayed', 400, 'transfer', inThisMonth(0, 23));
 
   await debt('cus-hoda', 3500, 14, -3, 'فاتورة INV-2480');
-  await payment('cus-hoda', 900, 'transfer', 2);
+  await payment('cus-hoda', 900, 'transfer', inThisMonth(1, 23));
 
   await debt('cus-fatma', 800, 40, 20, 'فاتورة INV-2465');
-  await payment('cus-fatma', 800, 'cash', 1);
+  await payment('cus-fatma', 800, 'cash', inThisMonth(2, 23));
 
   await debt('cus-safa', 5300, 26, 9, 'رصيد مفتوح');
-  await payment('cus-safa', 1200, 'card', 0);
+  await payment('cus-safa', 1200, 'card', inThisMonth(3, 23));
 
   await debt('cus-rokn', 930, 18, -6, 'فاتورة INV-2477');
-  await payment('cus-rokn', 250, 'cash', 6);
+  await payment('cus-rokn', 250, 'cash', inThisMonth(4, 23));
 
   // The remaining thirteen, each with one payment already made.
   for (const [i, c] of EXTRA_DEBTORS.entries()) {
     const id = extraIds[i];
     const paid = 120 + i * 10;
     await debt(id, c.owed + paid, 30 + i, c.dueDaysAgo, 'رصيد مفتوح');
-    await payment(id, paid, i % 2 === 0 ? 'cash' : 'wallet', c.lastPaidDaysAgo);
+    await payment(id, paid, i % 2 === 0 ? 'cash' : 'wallet', beforeThisMonth(3 + i));
   }
 
   // «محصّل هذا الشهر ٩,٦٤٠ · ٢٣ سداداً» — this month's collections against
   // older invoices. Each is paired with an equal, fully-settled debt raised
   // before the customer's open balance, so FIFO allocation clears the old
   // debt first and the outstanding figures above are untouched.
-  for (const [i, [customer, pounds, method, daysAgo]] of COLLECTIONS.entries()) {
+  for (const [i, [customer, pounds, method]] of COLLECTIONS.entries()) {
     await debt(customer, pounds, 60 + i, 45 + i, 'فاتورة سابقة');
-    await payment(customer, pounds, method, daysAgo);
+    await payment(customer, pounds, method, inThisMonth(5 + i, 23));
   }
 
   // «مستحق عليك (دائنون) ٣,٨٥٠ · ٤ موردين»
@@ -654,10 +720,19 @@ async function seedExpensesStaff(tx: SqlTx): Promise<void> {
       [newId(), e.label, P(e.amount), e.color, period, at(5, 9)],
     );
   }
+  // The manager account exists from the start but carries no passcode, so the
+  // first launch asks for one instead of shipping a default that nobody
+  // changes.
+  await tx.execute(
+    `INSERT INTO staff (id, name, role, role_key, scope, active, is_owner, created_at)
+     VALUES ('stf-owner', 'المدير', 'مالك / مدير', 'owner', 'كل الصلاحيات', 1, 1, ?)`,
+    [at(120, 9)],
+  );
+
   for (const s of STAFF) {
     await tx.execute(
-      'INSERT INTO staff (id, name, role, scope, active, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [s.id, s.name, s.role, s.scope, s.active ? 1 : 0, at(120, 9)],
+      'INSERT INTO staff (id, name, role, role_key, scope, active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [s.id, s.name, s.role, s.roleKey, s.scope, s.active ? 1 : 0, at(120, 9)],
     );
     for (const ability of s.abilities) {
       await tx.execute('INSERT INTO permissions (staff_id, ability, granted) VALUES (?, ?, 1)', [s.id, ability]);

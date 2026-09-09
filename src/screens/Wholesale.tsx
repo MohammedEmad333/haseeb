@@ -262,12 +262,12 @@ export function Wholesale() {
                 }}
               >
                 <div className="hs-row" style={{ justifyContent: 'space-between', gap: 'var(--hs-sp-5)' }}>
-                  <label className="hs-row" style={{ gap: 'var(--hs-sp-4)', cursor: 'pointer' }}>
+                  <label className="hs-row hs-check-row" style={{ gap: 'var(--hs-sp-4)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
+                      className="hs-check"
                       checked={useCustom}
                       onChange={(event) => setUseCustom(event.target.checked)}
-                      style={{ width: 18, height: 18, accentColor: 'var(--hs-emerald)' }}
                     />
                     <span style={{ fontSize: 'var(--hs-fs-cell)', fontWeight: 600 }}>
                       خصم مخصّص لهذه الفاتورة

@@ -7,12 +7,15 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
-import { Badge, Button, Card, CardBody, CardHead, EmptyState, Meter, Toggle } from '@/ui/primitives';
-import { AutoGrid, InitialTile, PageHeader, Timeline } from '@/ui/composites';
+import { Button, Card, CardBody, CardHead, EmptyState, Meter } from '@/ui/primitives';
+import { AutoGrid, PageHeader, Timeline } from '@/ui/composites';
+import { Can } from '@/shell/Guard';
+import { StaffManager } from './manage/StaffManager';
+import { DataTransfer } from './manage/DataTransfer';
 import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
 
 export function Manage() {
-  const { analytics, ops, profile, db, reset, storageLocation, syncPending, numbering, setNumbering, engine } =
+  const { analytics, ops, profile, reset, storageLocation, syncPending, numbering, setNumbering, engine } =
     useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
   const navigate = useNavigate();
@@ -24,7 +27,6 @@ export function Manage() {
       health: await analytics.financialHealth(),
       expenses,
       totalExpenses: expenses.reduce((t, e) => t + e.amount, 0),
-      staff: await ops.staff(),
       audit: await ops.audit(8),
     };
   }, [analytics, ops]);
@@ -128,54 +130,9 @@ export function Manage() {
       </div>
 
       <AutoGrid min={340} style={{ alignItems: 'start', marginBlockEnd: 'var(--hs-sp-8)' }}>
-        <Card panel style={{ minWidth: 0 }}>
-          <CardHead title="صلاحيات الموظفين" sub="إيقاف الصلاحية يمنع الدخول فوراً" />
-          <CardBody style={{ paddingInline: 0 }}>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {view.staff.map((member) => (
-                <li
-                  key={member.id}
-                  className="hs-row"
-                  style={{
-                    gap: 'var(--hs-sp-5)',
-                    padding: 'var(--hs-sp-5) var(--hs-sp-9)',
-                    borderBlockEnd: '1px solid var(--hs-divider)',
-                  }}
-                >
-                  <InitialTile
-                    name={member.name}
-                    size={34}
-                    bg="var(--hs-page)"
-                    border="var(--hs-border)"
-                    fg="var(--hs-text-slate-2)"
-                  />
-                  <span style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ display: 'block', fontSize: 'var(--hs-fs-body)', fontWeight: 600 }}>
-                      {member.name}
-                    </span>
-                    <span style={{ display: 'block', fontSize: 'var(--hs-fs-meta)', color: 'var(--hs-text-subtle)', marginBlockStart: 2 }}>
-                      {member.role}
-                    </span>
-                  </span>
-                  <Badge
-                    bg={member.active ? 'var(--hs-mint-bg)' : 'var(--hs-danger-bg)'}
-                    fg={member.active ? 'var(--hs-mint-text)' : 'var(--hs-danger-text)'}
-                  >
-                    {member.scope}
-                  </Badge>
-                  <Toggle
-                    checked={member.active}
-                    label={`صلاحيات ${member.name}`}
-                    onChange={async (next) => {
-                      await ops!.setStaffActive(member.id, next);
-                      await db?.flush();
-                    }}
-                  />
-                </li>
-              ))}
-            </ul>
-          </CardBody>
-        </Card>
+        <Can ability="staff.manage">
+          <StaffManager />
+        </Can>
 
         <Card panel style={{ minWidth: 0 }}>
           <CardHead title="سجل التدقيق" sub="كل عملية تُسجَّل محلياً بختم زمني غير قابل للتعديل" />
@@ -225,46 +182,45 @@ export function Manage() {
         </CardBody>
       </Card>
 
+      <Can ability="data.export">
+        <div style={{ marginBlockEnd: 'var(--hs-sp-8)' }}>
+          <DataTransfer />
+        </div>
+      </Can>
+
       <Card panel>
         <CardHead title="قاعدة البيانات المحلية" sub={`${storageLocation} · محرّك ${engine}`} />
         <CardBody>
           <p style={{ margin: 0, fontSize: 'var(--hs-fs-body)', color: 'var(--hs-text-muted)', lineHeight: 1.8 }}>
-            البيانات محفوظة على هذا الجهاز ومشفّرة بمعيار AES-256-GCM. المزامنة اختيارية: العمليات
-            تُدرَج في طابور محلي وتُرفَع فقط عند تفعيل المزامنة —
+            البيانات محفوظة على هذا الجهاز ومشفّرة بمعيار AES-256-GCM، ولا تغادره إلا بملف
+            تصدّره بنفسك. العمليات تُدرَج في طابور محلي —
             {' '}
             {counted(syncPending, NOUNS.operation)} في الطابور الآن.
           </p>
 
-          <div className="hs-row" style={{ gap: 'var(--hs-sp-4)', marginBlockStart: 'var(--hs-sp-8)', flexWrap: 'wrap' }}>
-            <Button
-              onClick={async () => {
-                await ops!.recordBackup();
-                await db?.flush();
-              }}
-            >
-              نسخة احتياطية الآن
-            </Button>
-
-            {confirmReset ? (
-              <>
-                <Button
-                  variant="action"
-                  onClick={async () => {
-                    await reset();
-                    setConfirmReset(false);
-                  }}
-                >
-                  تأكيد إعادة الضبط
-                </Button>
-                <Button onClick={() => setConfirmReset(false)}>تراجع</Button>
-                <span className="hs-field__error" role="alert">
-                  ستُحذف كل الحركات المسجّلة وتُستبدل بالبيانات الافتتاحية.
-                </span>
-              </>
-            ) : (
-              <Button onClick={() => setConfirmReset(true)}>إعادة الضبط للبيانات الافتتاحية</Button>
-            )}
-          </div>
+          <Can ability="data.reset">
+            <div className="hs-row" style={{ gap: 'var(--hs-sp-4)', marginBlockStart: 'var(--hs-sp-8)', flexWrap: 'wrap' }}>
+              {confirmReset ? (
+                <>
+                  <Button
+                    variant="action"
+                    onClick={async () => {
+                      await reset();
+                      setConfirmReset(false);
+                    }}
+                  >
+                    تأكيد إعادة الضبط
+                  </Button>
+                  <Button onClick={() => setConfirmReset(false)}>تراجع</Button>
+                  <span className="hs-field__error" role="alert">
+                    ستُحذف كل الحركات المسجّلة وتُستبدل بالبيانات الافتتاحية.
+                  </span>
+                </>
+              ) : (
+                <Button onClick={() => setConfirmReset(true)}>إعادة الضبط للبيانات الافتتاحية</Button>
+              )}
+            </div>
+          </Can>
         </CardBody>
       </Card>
     </>
