@@ -152,6 +152,18 @@ export class AccountingRepository {
     return (await this.db.all('SELECT * FROM cash_shifts ORDER BY opened_at DESC LIMIT ?', [limit])).map(toShift);
   }
 
+  /** Remove accounting extensions before the app's existing full reset. */
+  async clearAllForReset(): Promise<void> {
+    await this.db.mutate(
+      { entity: 'ledger', action: 'reset', description: 'مسح دفتر المحاسبة والورديات', localOnly: true },
+      async (tx) => {
+        for (const table of ['journal_lines', 'journal_entries', 'credit_note_lines', 'credit_notes', 'cash_shifts']) {
+          await tx.execute(`DELETE FROM ${table}`);
+        }
+      },
+    );
+  }
+
   async openShift(openingCash: number): Promise<CashShift> {
     if (!Number.isInteger(openingCash) || openingCash < 0) throw new Error('رصيد افتتاح الصندوق غير صحيح.');
     if (await this.currentShift()) throw new Error('توجد وردية مفتوحة بالفعل.');

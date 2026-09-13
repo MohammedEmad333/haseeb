@@ -117,6 +117,7 @@ export function HaseebProvider({ children }: { children: ReactNode }) {
 
   const reset = useCallback(async () => {
     if (!handle) return;
+    await handle.accounting.clearAllForReset();
     await wipeDatabase(handle.db);
     await handle.db.flush();
   }, [handle]);

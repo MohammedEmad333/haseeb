@@ -9,6 +9,7 @@ import type {
   StaffMember,
   SyncQueueEntry,
 } from '../types';
+import { postExpenseJournal } from './ledger-posting';
 
 /** Business profile, expenses, staff, orders, audit and the sync queue. */
 export class OperationsRepository {
@@ -107,11 +108,14 @@ export class OperationsRepository {
         description: `تسجيل مصروف «${label}»`,
         payload: { amount: input.amount, period },
       },
-      (tx) => tx.execute(
-        `INSERT INTO expenses (id, label, amount_piasters, color, period, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [id, label, input.amount, input.color ?? '#0F172A', period, at],
-      ),
+      async (tx) => {
+        await tx.execute(
+          `INSERT INTO expenses (id, label, amount_piasters, color, period, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [id, label, input.amount, input.color ?? '#0F172A', period, at],
+        );
+        await postExpenseJournal(tx, { id, label, amount: input.amount, at });
+      },
     );
     const row = await this.db.get('SELECT * FROM expenses WHERE id = ?', [id]);
     if (!row) throw new Error('تعذّر قراءة المصروف بعد حفظه.');

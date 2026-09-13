@@ -3,6 +3,7 @@ import type { Customer, CustomerKind, Debt, Payment, SettlementMethod } from '..
 import type { TierName } from '@/domain/wholesale';
 import { ageDebt, type DebtAging } from '@/domain/debts';
 import { money } from '@/lib/format';
+import { postPaymentJournal } from './ledger-posting';
 
 function toCustomer(row: Row): Customer {
   return {
@@ -50,8 +51,8 @@ export class CustomerRepository {
         description: `إضافة عميل «${input.name}»`,
         payload: input,
       },
-      (tx) =>
-        tx.execute(
+      async (tx) => {
+        await tx.execute(
           `INSERT INTO customers (id, name, kind, phone, city, tier, min_order_qty, since_year, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -65,7 +66,8 @@ export class CustomerRepository {
             input.sinceYear,
             nowIso(),
           ],
-        ),
+        );
+      },
     );
     return { ...input, id };
   }
@@ -224,8 +226,8 @@ export class CustomerRepository {
         description: `تسجيل دين ${money(input.amount)} على «${customer?.name ?? input.customerId}»`,
         payload: input,
       },
-      (tx) =>
-        tx.execute(
+      async (tx) => {
+        await tx.execute(
           `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
              opened_at, due_at, note)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -239,7 +241,8 @@ export class CustomerRepository {
             input.dueAt,
             input.note ?? '',
           ],
-        ),
+        );
+      },
     );
     return id;
   }
@@ -252,6 +255,7 @@ export class CustomerRepository {
     note?: string;
   }): Promise<string> {
     const id = newId();
+    const at = nowIso();
     const customer = await this.byId(input.customerId);
     await this.db.mutate(
       {
@@ -261,8 +265,8 @@ export class CustomerRepository {
         description: `سداد ${money(input.amount)} من «${customer?.name ?? input.customerId}»`,
         payload: input,
       },
-      (tx) =>
-        tx.execute(
+      async (tx) => {
+        await tx.execute(
           `INSERT INTO payments (id, debt_id, customer_id, amount_piasters, method, paid_at, note)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -271,10 +275,12 @@ export class CustomerRepository {
             input.customerId,
             input.amount,
             input.method,
-            nowIso(),
+            at,
             input.note ?? '',
           ],
-        ),
+        );
+        await postPaymentJournal(tx, { id, method: input.method, amount: input.amount, at });
+      },
     );
     return id;
   }

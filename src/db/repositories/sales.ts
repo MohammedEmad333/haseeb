@@ -13,6 +13,7 @@ import { computeTotals } from '@/domain/tax';
 import { lineProfit } from '@/domain/inventory';
 import { ProductRepository } from './products';
 import { money } from '@/lib/format';
+import { postSaleJournal } from './ledger-posting';
 
 export interface CartLine {
   productId: string;
@@ -190,6 +191,17 @@ export class SalesRepository {
             at,
           ],
         );
+
+        await postSaleJournal(tx, {
+          id: saleId,
+          invoiceNo,
+          paymentMethod: input.paymentMethod,
+          taxable: totals.taxable,
+          vat: totals.vat,
+          total: totals.total,
+          profit,
+          at,
+        });
 
         for (const line of input.lines) {
           await tx.execute(

@@ -8,6 +8,7 @@ import {
   type MovementKind,
 } from '@/domain/inventory';
 import { money } from '@/lib/format';
+import { postPurchaseJournal } from './ledger-posting';
 
 export interface CreateProductInput {
   sku: string;
@@ -125,12 +126,13 @@ export class ProductRepository {
           ],
         );
         if (initialQty > 0) {
+          const movementId = newId();
           await tx.execute(
             `INSERT INTO stock_movements
                (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
              VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?, ?)`,
             [
-              newId(),
+              movementId,
               id,
               initialQty,
               initialQty,
@@ -140,6 +142,13 @@ export class ProductRepository {
               at,
             ],
           );
+          await postPurchaseJournal(tx, {
+            movementId,
+            amount: initialQty * input.cost,
+            supplier: input.supplier?.trim() ?? '',
+            note: 'رصيد افتتاحي',
+            at,
+          });
         }
       },
     );
@@ -220,13 +229,14 @@ export class ProductRepository {
         payload: { productId: input.productId, delta, qtyAfter },
       },
       async (tx) => {
+        const movementId = newId();
         await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, input.productId]);
         await tx.execute(
           `INSERT INTO stock_movements
              (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            newId(),
+            movementId,
             input.productId,
             input.kind,
             delta,
@@ -237,6 +247,15 @@ export class ProductRepository {
             at,
           ],
         );
+        if (input.kind === 'purchase') {
+          await postPurchaseJournal(tx, {
+            movementId,
+            amount: input.qty * product.cost,
+            supplier: input.counterparty?.trim() ?? '',
+            note: input.note?.trim() || 'توريد مخزون',
+            at,
+          });
+        }
       },
     );
     return qtyAfter;
