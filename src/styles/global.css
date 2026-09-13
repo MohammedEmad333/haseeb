@@ -30,9 +30,17 @@ body {
 body {
   font-family: var(--hs-font-sans);
   color: var(--hs-text);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(20, 184, 166, 0.055), transparent 28%),
+    var(--hs-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: var(--hs-fs-body);
+}
+
+::selection {
+  background: rgba(20, 184, 166, 0.22);
+  color: var(--hs-ink);
 }
 
 #root {

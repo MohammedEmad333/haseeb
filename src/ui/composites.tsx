@@ -304,7 +304,7 @@ export function PageHeader({
 }) {
   return (
     <header
-      className="hs-row"
+      className="hs-row hs-pagehead"
       style={{
         alignItems: 'flex-end',
         justifyContent: 'space-between',
@@ -314,7 +314,7 @@ export function PageHeader({
       }}
     >
       <div>
-        <h1 style={{ margin: 0, fontSize: 'var(--hs-fs-page)', fontWeight: 600, letterSpacing: '-0.2px' }}>
+        <h1 style={{ margin: 0, fontSize: 'var(--hs-fs-page)', fontWeight: 700, letterSpacing: '-0.35px' }}>
           {title}
         </h1>
         {sub ? (

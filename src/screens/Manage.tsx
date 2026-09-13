@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
-import { Button, Card, CardBody, CardHead, EmptyState, Meter } from '@/ui/primitives';
+import { Button, Card, CardBody, CardHead, EmptyState, Input, Meter } from '@/ui/primitives';
 import { AutoGrid, PageHeader, Timeline } from '@/ui/composites';
 import { Can } from '@/shell/Guard';
 import { StaffManager } from './manage/StaffManager';
@@ -18,11 +18,12 @@ export function Manage() {
   const { analytics, ops, profile, reset, storageLocation, syncPending, numbering, setNumbering, engine } =
     useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
+  const [addingExpense, setAddingExpense] = useState(false);
   const navigate = useNavigate();
 
   const { data: view } = useQuery(async () => {
     if (!analytics || !ops) return null;
-    const expenses = await ops.expenses();
+    const expenses = await ops.expenses(new Date().toISOString().slice(0, 7));
     return {
       health: await analytics.financialHealth(),
       expenses,
@@ -82,7 +83,11 @@ export function Manage() {
         </Card>
 
         <Card panel style={{ minWidth: 0 }}>
-          <CardHead title="التكاليف التشغيلية" sub="مصروفات الشهر الحالي" />
+          <CardHead
+            title="التكاليف التشغيلية"
+            sub="مصروفات الشهر الحالي"
+            actions={<Button size="sm" variant="action" onClick={() => setAddingExpense(true)}>+ تسجيل مصروف</Button>}
+          />
           <CardBody>
             {view.expenses.length === 0 ? (
               <EmptyState title="لا توجد مصروفات مسجّلة" body="سجّل مصروفات الشهر لتظهر حصّة كل بند من الإجمالي." />
@@ -223,9 +228,94 @@ export function Manage() {
           </Can>
         </CardBody>
       </Card>
+
+      {addingExpense ? (
+        <ExpenseDialog
+          unit={unit}
+          onClose={() => setAddingExpense(false)}
+          onSubmit={async (input) => {
+            await ops!.addExpense(input);
+            setAddingExpense(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }
+
+function ExpenseDialog({
+  unit,
+  onClose,
+  onSubmit,
+}: {
+  unit: string;
+  onClose: () => void;
+  onSubmit: (input: { label: string; amount: number; period: string }) => void | Promise<void>;
+}) {
+  const [label, setLabel] = useState('');
+  const [amount, setAmount] = useState('');
+  const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const parsed = Number(amount);
+  const piasters = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) : 0;
+  const invalid = !label.trim() || piasters <= 0 || !/^\d{4}-\d{2}$/.test(period);
+
+  const save = async (): Promise<void> => {
+    if (invalid) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSubmit({ label: label.trim(), amount: piasters, period });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذّر تسجيل المصروف.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="hs-drawer__scrim" onClick={saving ? undefined : onClose} />
+      <div role="dialog" aria-modal="true" aria-label="تسجيل مصروف" style={dialogStyle}>
+        <h2 style={{ margin: 0, fontSize: 'var(--hs-fs-section)' }}>تسجيل مصروف</h2>
+        <div className="hs-stack" style={{ gap: 'var(--hs-sp-7)', marginBlockStart: 'var(--hs-sp-8)' }}>
+          <div>
+            <label className="hs-field__label" htmlFor="expense-label">اسم المصروف</label>
+            <Input id="expense-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="مثال: إيجار، كهرباء، نقل" autoFocus />
+          </div>
+          <div>
+            <label className="hs-field__label" htmlFor="expense-amount">القيمة ({unit})</label>
+            <Input id="expense-amount" className="hs-input hs-num" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="hs-field__label" htmlFor="expense-period">الشهر</label>
+            <Input id="expense-period" className="hs-input hs-num" type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
+          </div>
+          {error ? <span className="hs-field__error" role="alert">{error}</span> : null}
+          <div className="hs-row" style={{ gap: 'var(--hs-sp-4)' }}>
+            <Button style={{ flex: 1 }} disabled={saving} onClick={onClose}>إلغاء</Button>
+            <Button variant="action" style={{ flex: 1 }} disabled={invalid || saving} onClick={() => void save()}>
+              {saving ? 'جارٍ الحفظ…' : 'حفظ المصروف'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const dialogStyle = {
+  position: 'fixed',
+  insetBlockStart: '50%',
+  insetInlineStart: '50%',
+  transform: 'translate(50%, -50%)',
+  zIndex: 62,
+  width: 'min(440px, 92vw)',
+  background: 'var(--hs-surface)',
+  borderRadius: 'var(--hs-r-panel)',
+  padding: 'var(--hs-sp-10)',
+  boxShadow: 'var(--hs-shadow-modal)',
+} as const;
 
 function healthVerdict(score: number): string {
   if (score >= 75) return 'وضع مستقر';

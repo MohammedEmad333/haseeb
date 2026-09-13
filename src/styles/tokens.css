@@ -7,28 +7,28 @@
 
 :root {
   /* ---- colour -------------------------------------------------------- */
-  --hs-ink: #0f172a;
-  --hs-ink-2: #1e293b;
-  --hs-brand-navy: #1e3a67;
+  --hs-ink: #101828;
+  --hs-ink-2: #1d2939;
+  --hs-brand-navy: #0b1220;
 
-  --hs-emerald: #059669;
-  --hs-emerald-dark: #047857;
-  --hs-emerald-deep: #065f46;
-  --hs-mint: #10b981;
-  --hs-mint-light: #34d399;
-  --hs-mint-bg: #ecfdf5;
-  --hs-mint-border: #a7f3d0;
-  --hs-mint-text: #047857;
-  --hs-on-mint: #04241a;
-  --hs-teal: #0ea5a0;
+  --hs-emerald: #0f766e;
+  --hs-emerald-dark: #115e59;
+  --hs-emerald-deep: #134e4a;
+  --hs-mint: #14b8a6;
+  --hs-mint-light: #2dd4bf;
+  --hs-mint-bg: #f0fdfa;
+  --hs-mint-border: #99f6e4;
+  --hs-mint-text: #0f766e;
+  --hs-on-mint: #042f2e;
+  --hs-teal: #0891b2;
 
-  --hs-page: #eef2f6;
+  --hs-page: #f3f5f9;
   --hs-surface: #ffffff;
   --hs-surface-alt: #f8fafc;
-  --hs-border: #e2e8f0;
-  --hs-border-card: #e7ecf2;
-  --hs-divider: #f1f5f9;
-  --hs-divider-2: #e8eef4;
+  --hs-border: #dfe5ee;
+  --hs-border-card: #e4e9f1;
+  --hs-divider: #edf1f6;
+  --hs-divider-2: #e7ecf3;
 
   --hs-text: #0f172a;
   --hs-text-muted: #64748b;
@@ -49,8 +49,8 @@
   --hs-danger-solid: #dc2626;
   --hs-danger-deep: #991b1b;
 
-  --hs-nav-active: #eaf2ee;
-  --hs-hover: #eef2f6;
+  --hs-nav-active: rgba(20, 184, 166, 0.14);
+  --hs-hover: #f0f3f8;
 
   /* on-dark surfaces */
   --hs-on-dark: #f8fafc;
@@ -67,17 +67,17 @@
   --hs-font-mono: 'IBM Plex Mono', ui-monospace, 'Courier New', monospace;
 
   --hs-fs-hero: 30px;
-  --hs-fs-page: 23px;
-  --hs-fs-kpi: 25px;
-  --hs-fs-section: 15px;
-  --hs-fs-section-sm: 14.5px;
-  --hs-fs-body: 13px;
-  --hs-fs-body-lg: 13.5px;
-  --hs-fs-cell: 12.5px;
-  --hs-fs-meta: 11.5px;
-  --hs-fs-label: 12px;
-  --hs-fs-badge: 11px;
-  --hs-fs-micro: 10.5px;
+  --hs-fs-page: 27px;
+  --hs-fs-kpi: 28px;
+  --hs-fs-section: 17px;
+  --hs-fs-section-sm: 15px;
+  --hs-fs-body: 14px;
+  --hs-fs-body-lg: 14.5px;
+  --hs-fs-cell: 13px;
+  --hs-fs-meta: 12px;
+  --hs-fs-label: 12.5px;
+  --hs-fs-badge: 11.5px;
+  --hs-fs-micro: 11px;
 
   /* ---- spacing (the spec's 3/5/7/9/11/13/14/16/18/20/22/26/32 scale) -- */
   --hs-sp-1: 3px;
@@ -93,23 +93,23 @@
   --hs-sp-11: 22px;
   --hs-sp-12: 26px;
   --hs-sp-13: 32px;
-  --hs-gap: 14px;
+  --hs-gap: 18px;
 
   /* ---- radius -------------------------------------------------------- */
   --hs-r-badge: 8px;
   --hs-r-control: 12px;
   --hs-r-control-sm: 10px;
-  --hs-r-button: 13px;
-  --hs-r-card: 16px;
-  --hs-r-tile: 14px;
-  --hs-r-panel: 18px;
-  --hs-r-hero: 22px;
+  --hs-r-button: 14px;
+  --hs-r-card: 20px;
+  --hs-r-tile: 16px;
+  --hs-r-panel: 22px;
+  --hs-r-hero: 26px;
   --hs-r-pill: 999px;
 
   /* ---- shadow -------------------------------------------------------- */
-  --hs-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 26px -16px rgba(15, 23, 42, 0.18);
-  --hs-shadow-raised: 0 18px 40px -26px rgba(15, 23, 42, 0.4);
-  --hs-shadow-modal: 0 1px 2px rgba(15, 23, 42, 0.04), 0 24px 50px -32px rgba(15, 23, 42, 0.45);
+  --hs-shadow-card: 0 1px 2px rgba(16, 24, 40, 0.03), 0 12px 32px -20px rgba(16, 24, 40, 0.2);
+  --hs-shadow-raised: 0 24px 50px -28px rgba(16, 24, 40, 0.38);
+  --hs-shadow-modal: 0 28px 70px -30px rgba(16, 24, 40, 0.55);
   --hs-shadow-dark-btn: 0 8px 20px -10px rgba(15, 23, 42, 0.7);
   --hs-shadow-green-btn: 0 8px 18px -10px rgba(5, 150, 105, 0.9);
   --hs-shadow-fab: 0 16px 30px -12px rgba(5, 150, 105, 0.95);
@@ -120,8 +120,8 @@
   --hs-motion: 160ms ease;
 
   /* ---- layout -------------------------------------------------------- */
-  --hs-sidebar-w: 228px;
-  --hs-topbar-h: 64px;
+  --hs-sidebar-w: 250px;
+  --hs-topbar-h: 72px;
   --hs-tabbar-h: 62px;
   --hs-touch: 44px;
 }

@@ -142,11 +142,9 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
         >
           {({ isActive }) => (
             <>
-              <span
-                className="hs-navitem__dot"
-                style={isActive ? { background: screen.dot } : undefined}
-                aria-hidden
-              />
+              <span className="hs-navitem__icon" style={isActive ? { background: screen.dot } : undefined} aria-hidden>
+                {screen.short.slice(0, 1)}
+              </span>
               <span>{screen.label}</span>
             </>
           )}
@@ -228,13 +226,15 @@ function MobileTabBar({ onMore }: { onMore: () => void }) {
               to={screen.path}
               className={cx('hs-tabbar__item', active && 'hs-tabbar__item--active')}
             >
-              <span className="hs-tabbar__dot" style={active ? { background: screen.dot } : undefined} aria-hidden />
+              <span className="hs-tabbar__icon" style={active ? { background: screen.dot } : undefined} aria-hidden>
+                {screen.short.slice(0, 1)}
+              </span>
               {screen.short}
             </NavLink>
           );
         })}
         <button type="button" className="hs-tabbar__item" onClick={onMore}>
-          <span className="hs-tabbar__dot" aria-hidden />
+          <span className="hs-tabbar__icon" aria-hidden>•••</span>
           المزيد
         </button>
       </div>

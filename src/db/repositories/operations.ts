@@ -90,6 +90,34 @@ export class OperationsRepository {
     return (await this.expenses(period)).reduce((t, e) => t + e.amount, 0);
   }
 
+  async addExpense(input: { label: string; amount: number; period?: string; color?: string }): Promise<Expense> {
+    const label = input.label.trim();
+    const period = input.period ?? nowIso().slice(0, 7);
+    if (!label) throw new Error('اسم المصروف مطلوب.');
+    if (!Number.isInteger(input.amount) || input.amount <= 0) throw new Error('قيمة المصروف غير صحيحة.');
+    if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('شهر المصروف غير صحيح.');
+
+    const id = newId();
+    const at = nowIso();
+    await this.db.mutate(
+      {
+        entity: 'expense',
+        entityId: id,
+        action: 'create',
+        description: `تسجيل مصروف «${label}»`,
+        payload: { amount: input.amount, period },
+      },
+      (tx) => tx.execute(
+        `INSERT INTO expenses (id, label, amount_piasters, color, period, recorded_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, label, input.amount, input.color ?? '#0F172A', period, at],
+      ),
+    );
+    const row = await this.db.get('SELECT * FROM expenses WHERE id = ?', [id]);
+    if (!row) throw new Error('تعذّر قراءة المصروف بعد حفظه.');
+    return toExpense(row);
+  }
+
   /**
    * Operating expenses attributable to a window.
    *
@@ -158,6 +186,68 @@ export class OperationsRepository {
         ])
       : await this.db.all('SELECT * FROM orders ORDER BY placed_at DESC');
     return rows.map(toOrder);
+  }
+
+  async createOrder(input: {
+    direction: OrderDirection;
+    counterpartyName: string;
+    counterpartyId?: string | null;
+    fulfilment?: string;
+    itemCount: number;
+    summary?: string;
+    total: number;
+  }): Promise<Order> {
+    const counterpartyName = input.counterpartyName.trim();
+    if (!counterpartyName) throw new Error('اسم العميل أو المورد مطلوب.');
+    if (!Number.isInteger(input.itemCount) || input.itemCount <= 0) throw new Error('عدد الأصناف غير صحيح.');
+    if (!Number.isInteger(input.total) || input.total < 0) throw new Error('قيمة الطلب غير صحيحة.');
+
+    const id = newId();
+    const orderNo = await this.#nextOrderNo(input.direction);
+    const at = nowIso();
+    const status: OrderStatus = input.direction === 'supplier' ? 'awaitingShipment' : 'preparing';
+    await this.db.mutate(
+      {
+        entity: 'order',
+        entityId: id,
+        action: 'create',
+        description: `إنشاء ${input.direction === 'supplier' ? 'أمر توريد' : 'طلب عميل'} ${orderNo}`,
+        payload: { orderNo, direction: input.direction, total: input.total },
+      },
+      (tx) => tx.execute(
+        `INSERT INTO orders (id, order_no, direction, counterparty_id, counterparty_name,
+           status, fulfilment, item_count, summary, total_piasters, placed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          orderNo,
+          input.direction,
+          input.counterpartyId ?? null,
+          counterpartyName,
+          status,
+          input.fulfilment?.trim() ?? '',
+          input.itemCount,
+          input.summary?.trim() ?? '',
+          input.total,
+          at,
+        ],
+      ),
+    );
+    const row = await this.db.get('SELECT * FROM orders WHERE id = ?', [id]);
+    if (!row) throw new Error('تعذّر قراءة الطلب بعد حفظه.');
+    return toOrder(row);
+  }
+
+  async #nextOrderNo(direction: OrderDirection): Promise<string> {
+    const prefix = direction === 'supplier' ? 'PO-' : 'ORD-';
+    const last = await this.db.value<string>(
+      'SELECT order_no FROM orders WHERE order_no LIKE ? ORDER BY order_no DESC LIMIT 1',
+      [`${prefix}%`],
+    );
+    const next = last && Number.isFinite(Number(last.slice(prefix.length)))
+      ? Number(last.slice(prefix.length)) + 1
+      : 1;
+    return `${prefix}${String(next).padStart(4, '0')}`;
   }
 
   async setOrderStatus(id: string, status: OrderStatus): Promise<void> {

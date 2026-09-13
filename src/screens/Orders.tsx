@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
-import { Badge, Button, Card, CardBody, CardHead, EmptyState, Tabs } from '@/ui/primitives';
+import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Tabs } from '@/ui/primitives';
 import { PageHeader } from '@/ui/composites';
 import { TaxInvoice } from '@/screens/parts/TaxInvoice';
 import { ORDER_STATUS_LABEL } from '@/db/repositories/operations';
@@ -30,6 +30,7 @@ const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
 export function Orders() {
   const { ops, sales, profile, db } = useHaseeb();
   const [direction, setDirection] = useState<OrderDirection>('customer');
+  const [creating, setCreating] = useState(false);
 
   const { data: view } = useQuery(async () => {
     if (!ops || !sales) return null;
@@ -41,7 +42,11 @@ export function Orders() {
 
   return (
     <>
-      <PageHeader title="الطلبات والفواتير" sub="طلبات العملاء وأوامر التوريد · الفاتورة الضريبية" />
+      <PageHeader
+        title="الطلبات والفواتير"
+        sub="طلبات العملاء وأوامر التوريد · الفاتورة الضريبية"
+        actions={<Button variant="action" onClick={() => setCreating(true)}>+ طلب جديد</Button>}
+      />
 
       <div
         style={{
@@ -108,7 +113,86 @@ export function Orders() {
           )}
         </div>
       </div>
+
+      {creating ? (
+        <CreateOrderDialog
+          direction={direction}
+          unit={unit}
+          onClose={() => setCreating(false)}
+          onSubmit={async (input) => {
+            await ops!.createOrder(input);
+            await db?.flush();
+            setCreating(false);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function CreateOrderDialog({
+  direction,
+  unit,
+  onClose,
+  onSubmit,
+}: {
+  direction: OrderDirection;
+  unit: string;
+  onClose: () => void;
+  onSubmit: (input: Parameters<NonNullable<ReturnType<typeof useHaseeb>['ops']>['createOrder']>[0]) => Promise<void>;
+}) {
+  const [name, setName] = useState('');
+  const [itemCount, setItemCount] = useState('1');
+  const [total, setTotal] = useState('');
+  const [fulfilment, setFulfilment] = useState('');
+  const [summary, setSummary] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <div className="hs-dialog-scrim" role="presentation" onMouseDown={onClose}>
+      <form
+        className="hs-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="إضافة طلب"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setError(null);
+          setSaving(true);
+          try {
+            await onSubmit({
+              direction,
+              counterpartyName: name,
+              itemCount: Number(itemCount),
+              total: Math.round(Number(total) * 100),
+              fulfilment,
+              summary,
+            });
+          } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'تعذّر حفظ الطلب.');
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <CardHead
+          title={direction === 'supplier' ? 'أمر توريد جديد' : 'طلب عميل جديد'}
+          sub="يُحفظ الطلب محلياً ويظهر مباشرة في المتابعة"
+          actions={<Button size="sm" onClick={onClose}>إغلاق</Button>}
+        />
+        <div className="hs-form-grid">
+          <label>اسم {direction === 'supplier' ? 'المورد' : 'العميل'}<Input required value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>عدد الأصناف<Input required min="1" step="1" type="number" value={itemCount} onChange={(e) => setItemCount(e.target.value)} /></label>
+          <label>الإجمالي ({unit})<Input required min="0" step="0.01" type="number" value={total} onChange={(e) => setTotal(e.target.value)} /></label>
+          <label>التسليم<Input value={fulfilment} onChange={(e) => setFulfilment(e.target.value)} placeholder="مثال: اليوم مساءً" /></label>
+          <label style={{ gridColumn: '1 / -1' }}>ملخص الأصناف<Input value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="وصف مختصر للطلب" /></label>
+        </div>
+        {error ? <p role="alert" style={{ color: 'var(--hs-danger-text)' }}>{error}</p> : null}
+        <Button type="submit" variant="action" block disabled={saving}>{saving ? 'جارٍ الحفظ…' : 'حفظ الطلب'}</Button>
+      </form>
+    </div>
   );
 }
 

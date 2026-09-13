@@ -16,11 +16,12 @@ import { useQuery } from '@/state/useQuery';
 import { Button, Card, CardHead, EmptyState, ErrorState, Input, Select } from '@/ui/primitives';
 import { DataTable, PageHeader, type Column } from '@/ui/composites';
 import type { CartLine } from '@/db/repositories/sales';
-import type { PaymentMethod, Product } from '@/db/types';
+import type { InvoiceWithLines, PaymentMethod, Product } from '@/db/types';
 import { computeTotals } from '@/domain/tax';
 import { money, moneyRounded, num, percent, timeAndDate } from '@/lib/format';
 import { marginPercent } from '@/domain/inventory';
 import { BarcodeCamera } from '@/screens/parts/BarcodeCamera';
+import { TaxInvoice } from '@/screens/parts/TaxInvoice';
 
 const PAYMENT_TINT: Record<PaymentMethod, { bg: string; fg: string; label: string }> = {
   cash: { bg: 'var(--hs-mint-bg)', fg: 'var(--hs-mint-text)', label: 'نقدي' },
@@ -38,6 +39,7 @@ export function PointOfSale() {
   const [flash, setFlash] = useState<string | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [receipt, setReceipt] = useState<InvoiceWithLines | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
   const { data: view } = useQuery(async () => {
@@ -194,6 +196,7 @@ export function PointOfSale() {
       });
       setCart([]);
       setCustomerId('');
+      setReceipt(result.invoice);
       await db?.flush();
       setFlash(
         paymentMethod === 'credit'
@@ -398,6 +401,24 @@ export function PointOfSale() {
           onDetected={(code) => void acceptBarcode(code)}
         />
       ) : null}
+
+      {receipt ? (
+        <div className="hs-dialog-scrim hs-no-print" role="presentation" onMouseDown={() => setReceipt(null)}>
+          <div
+            className="hs-dialog hs-receipt-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`الفاتورة ${receipt.invoiceNo}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="hs-row" style={{ justifyContent: 'space-between', marginBlockEnd: 'var(--hs-sp-6)' }}>
+              <strong>تمت العملية بنجاح</strong>
+              <Button size="sm" onClick={() => setReceipt(null)}>إغلاق</Button>
+            </div>
+            <TaxInvoice invoice={receipt} profile={profile} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -524,6 +545,8 @@ function CartPanel({
   onQty: (productId: string, qty: number) => void | Promise<void>;
   onCheckout: (method: PaymentMethod) => void | Promise<void>;
 }) {
+  const [paymentMethod, setPaymentMethod] = useState<Exclude<PaymentMethod, 'credit'>>('cash');
+
   return (
     <Card
       dark
@@ -612,6 +635,25 @@ function CartPanel({
       </div>
 
       <div style={{ marginBlockStart: 'var(--hs-sp-9)', display: 'grid', gap: 'var(--hs-sp-5)' }}>
+        <div>
+          <div style={{ fontSize: 'var(--hs-fs-badge)', color: 'var(--hs-on-dark-subtle)', marginBlockEnd: 'var(--hs-sp-3)' }}>
+            طريقة الدفع
+          </div>
+          <div className="hs-payment-methods" role="group" aria-label="طريقة الدفع">
+            {(['cash', 'card', 'wallet'] as const).map((method) => (
+              <button
+                type="button"
+                key={method}
+                aria-pressed={paymentMethod === method}
+                className="hs-payment-method"
+                onClick={() => setPaymentMethod(method)}
+              >
+                {PAYMENT_TINT[method].label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Select
           value={customerId}
           onChange={(event) => onCustomer(event.target.value)}
@@ -634,7 +676,7 @@ function CartPanel({
           <Button variant="glass" style={{ flex: 1 }} onClick={() => void onCheckout('credit')}>
             تسجيل كدين
           </Button>
-          <Button variant="mint" style={{ flex: 1 }} onClick={() => void onCheckout('cash')}>
+          <Button variant="mint" style={{ flex: 1 }} onClick={() => void onCheckout(paymentMethod)}>
             إتمام الدفع
           </Button>
         </div>

@@ -11,8 +11,9 @@ import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardHead, ChipGroup, EmptyState, Tabs } from '@/ui/primitives';
 import { AccentCard, AutoGrid, DataTable, PageHeader, type Column } from '@/ui/composites';
-import type { Invoice, InvoiceStatus } from '@/db/types';
+import type { Invoice, InvoiceStatus, InvoiceWithLines } from '@/db/types';
 import { NOUNS, counted, dateFull, money, percent } from '@/lib/format';
+import { TaxInvoice } from '@/screens/parts/TaxInvoice';
 
 type Period = 'today' | 'week' | 'month' | 'all';
 type Kind = 'all' | 'retail' | 'wholesale';
@@ -35,6 +36,7 @@ export function Finance() {
   const [period, setPeriod] = useState<Period>('week');
   const [kind, setKind] = useState<Kind>('all');
   const [statuses, setStatuses] = useState<Set<InvoiceStatus>>(new Set());
+  const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithLines | null>(null);
 
   const { data: view } = useQuery(async () => {
     if (!sales || !analytics) return null;
@@ -201,6 +203,11 @@ export function Finance() {
           columns={columns}
           rows={view.rows}
           rowKey={(i) => i.id}
+          onRowClick={(invoice) => {
+            void sales?.invoiceById(invoice.id).then((full) => {
+              if (full) setSelectedInvoice(full);
+            });
+          }}
           empty={
             <EmptyState
               title="لا توجد فواتير في هذه الفترة"
@@ -224,6 +231,24 @@ export function Finance() {
         مصروفات الفترة {money(view.summary.expenses, 0)} {unit} — تُوزَّع مصروفات الشهر بالتناسب مع
         عدد أيام الفترة المختارة.
       </p>
+
+      {selectedInvoice ? (
+        <div className="hs-dialog-scrim hs-no-print" role="presentation" onMouseDown={() => setSelectedInvoice(null)}>
+          <div
+            className="hs-dialog hs-receipt-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`الفاتورة ${selectedInvoice.invoiceNo}`}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="hs-row" style={{ justifyContent: 'space-between', marginBlockEnd: 'var(--hs-sp-6)' }}>
+              <strong>تفاصيل الفاتورة</strong>
+              <Button size="sm" onClick={() => setSelectedInvoice(null)}>إغلاق</Button>
+            </div>
+            <TaxInvoice invoice={selectedInvoice} profile={profile} />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
