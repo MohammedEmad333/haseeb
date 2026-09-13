@@ -31,7 +31,7 @@ const PAYMENT_TINT: Record<PaymentMethod, { bg: string; fg: string; label: strin
 };
 
 export function PointOfSale() {
-  const { products, sales, customers, analytics, profile, search, setSearch, db } = useHaseeb();
+  const { products, sales, customers, analytics, accounting, profile, search, setSearch, db } = useHaseeb();
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState('');
@@ -40,10 +40,11 @@ export function PointOfSale() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [receipt, setReceipt] = useState<InvoiceWithLines | null>(null);
+  const [shiftDialog, setShiftDialog] = useState<'open' | 'close' | null>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
   const { data: view } = useQuery(async () => {
-    if (!products || !sales || !analytics || !customers) return null;
+    if (!products || !sales || !analytics || !customers || !accounting) return null;
     const asOf = new Date();
     const today = await analytics.todayTotals(asOf);
     const week = await analytics.weekTotals(asOf);
@@ -58,8 +59,9 @@ export function PointOfSale() {
         endOfToday(asOf).toISOString(),
       ),
       margin: marginPercent(week.sales, week.profit),
+      shift: await accounting.currentShift(),
     };
-  }, [products, sales, analytics, customers, search]);
+  }, [products, sales, analytics, customers, accounting, search]);
 
   const vatRate = profile?.vatRate ?? 14;
   const unit = profile?.currencyLabel ?? '₪';
@@ -252,6 +254,9 @@ export function PointOfSale() {
         sub="نقطة بيع سريعة · وضع الكاشير"
         actions={
           <div className="hs-row" style={{ gap: 'var(--hs-sp-4)', flexWrap: 'wrap' }}>
+            <Button variant={view.shift ? 'mint' : 'action'} onClick={() => setShiftDialog(view.shift ? 'close' : 'open')}>
+              {view.shift ? 'إغلاق الوردية' : 'فتح الوردية'}
+            </Button>
             <Counter label="المصاري اليومية" value={moneyRounded(view.today.sales)} />
             <Counter label="محصول الأسبوع" value={moneyRounded(view.weekCollected)} />
             <Counter label="نسبة الربح" value={percent(Math.round(view.margin))} accent />
@@ -419,7 +424,43 @@ export function PointOfSale() {
           </div>
         </div>
       ) : null}
+
+      {shiftDialog ? (
+        <PosShiftDialog
+          mode={shiftDialog}
+          unit={unit}
+          onClose={() => setShiftDialog(null)}
+          onSubmit={async (amount) => {
+            if (shiftDialog === 'open') await accounting!.openShift(amount);
+            else await accounting!.closeShift(amount);
+            await db?.flush();
+            setShiftDialog(null);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function PosShiftDialog({ mode, unit, onClose, onSubmit }: { mode: 'open' | 'close'; unit: string; onClose: () => void; onSubmit: (amount: number) => Promise<void> }) {
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="hs-dialog-scrim" role="presentation" onMouseDown={onClose}>
+      <form className="hs-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()} onSubmit={async (event) => {
+        event.preventDefault(); setSaving(true); setError(null);
+        try { await onSubmit(Math.round(Number(amount) * 100)); }
+        catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذّر حفظ الوردية.'); }
+        finally { setSaving(false); }
+      }}>
+        <CardHead title={mode === 'open' ? 'فتح وردية الصندوق' : 'إغلاق وردية الصندوق'} sub={mode === 'open' ? 'أدخل النقد الموجود في الدرج قبل بدء البيع.' : 'أدخل النقد الفعلي ليحسب حسيب فرق الصندوق.'} actions={<Button size="sm" onClick={onClose}>إغلاق</Button>} />
+        <label className="hs-field__label" htmlFor="pos-shift-amount">{mode === 'open' ? 'الرصيد الافتتاحي' : 'النقد الفعلي'} ({unit})</label>
+        <Input id="pos-shift-amount" autoFocus required type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        {error ? <p role="alert" style={{ color: 'var(--hs-danger-text)' }}>{error}</p> : null}
+        <Button block variant="action" type="submit" disabled={saving || !amount}>{saving ? 'جارٍ الحفظ…' : mode === 'open' ? 'بدء الوردية' : 'إغلاق ومطابقة'}</Button>
+      </form>
+    </div>
   );
 }
 

@@ -185,6 +185,165 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_period ON expenses (period);
 
+-- Formal accounting ledger. Entries are immutable; correcting an operation
+-- is done by posting a reversing entry (for example a credit note).
+CREATE TABLE IF NOT EXISTS ledger_accounts (
+  id             TEXT PRIMARY KEY,
+  code           TEXT NOT NULL UNIQUE,
+  name           TEXT NOT NULL,
+  account_type   TEXT NOT NULL CHECK (account_type IN ('asset','liability','equity','revenue','expense')),
+  normal_balance TEXT NOT NULL CHECK (normal_balance IN ('debit','credit')),
+  active         INTEGER NOT NULL DEFAULT 1
+);
+
+INSERT OR IGNORE INTO ledger_accounts VALUES
+  ('acc-cash', '101', 'الصندوق', 'asset', 'debit', 1),
+  ('acc-card', '102', 'تحصيلات البطاقات', 'asset', 'debit', 1),
+  ('acc-wallet', '103', 'المحفظة الإلكترونية', 'asset', 'debit', 1),
+  ('acc-ar', '110', 'الذمم المدينة', 'asset', 'debit', 1),
+  ('acc-inventory', '120', 'المخزون', 'asset', 'debit', 1),
+  ('acc-ap', '200', 'الذمم الدائنة', 'liability', 'credit', 1),
+  ('acc-vat', '210', 'ضريبة القيمة المضافة المستحقة', 'liability', 'credit', 1),
+  ('acc-equity', '300', 'رأس المال', 'equity', 'credit', 1),
+  ('acc-sales', '400', 'إيرادات المبيعات', 'revenue', 'credit', 1),
+  ('acc-cogs', '500', 'تكلفة البضاعة المباعة', 'expense', 'debit', 1),
+  ('acc-expense', '600', 'المصروفات التشغيلية', 'expense', 'debit', 1);
+
+CREATE TABLE IF NOT EXISTS journal_entries (
+  id             TEXT PRIMARY KEY,
+  reference_type TEXT NOT NULL,
+  reference_id   TEXT NOT NULL,
+  description    TEXT NOT NULL,
+  occurred_at    TEXT NOT NULL,
+  UNIQUE (reference_type, reference_id)
+);
+CREATE INDEX IF NOT EXISTS idx_journal_time ON journal_entries (occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS journal_lines (
+  id              TEXT PRIMARY KEY,
+  journal_id      TEXT NOT NULL REFERENCES journal_entries (id) ON DELETE CASCADE,
+  account_id      TEXT NOT NULL REFERENCES ledger_accounts (id),
+  debit_piasters  INTEGER NOT NULL DEFAULT 0 CHECK (debit_piasters >= 0),
+  credit_piasters INTEGER NOT NULL DEFAULT 0 CHECK (credit_piasters >= 0),
+  CHECK ((debit_piasters = 0) <> (credit_piasters = 0))
+);
+CREATE INDEX IF NOT EXISTS idx_journal_lines_account ON journal_lines (account_id);
+
+CREATE TABLE IF NOT EXISTS credit_notes (
+  id                TEXT PRIMARY KEY,
+  note_no           TEXT NOT NULL UNIQUE,
+  invoice_id        TEXT NOT NULL UNIQUE REFERENCES invoices (id) ON DELETE CASCADE,
+  payment_method    TEXT NOT NULL,
+  subtotal_piasters INTEGER NOT NULL,
+  vat_piasters      INTEGER NOT NULL,
+  total_piasters    INTEGER NOT NULL,
+  profit_piasters   INTEGER NOT NULL,
+  reason            TEXT NOT NULL,
+  issued_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_time ON credit_notes (issued_at DESC);
+
+CREATE TABLE IF NOT EXISTS credit_note_lines (
+  id             TEXT PRIMARY KEY,
+  credit_note_id TEXT NOT NULL REFERENCES credit_notes (id) ON DELETE CASCADE,
+  product_id     TEXT REFERENCES products (id),
+  name_snapshot  TEXT NOT NULL,
+  qty            INTEGER NOT NULL,
+  unit_piasters  INTEGER NOT NULL,
+  total_piasters INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cash_shifts (
+  id                       TEXT PRIMARY KEY,
+  opened_by                TEXT NOT NULL,
+  opened_at                TEXT NOT NULL,
+  opening_cash_piasters    INTEGER NOT NULL,
+  closed_at                TEXT,
+  expected_cash_piasters   INTEGER,
+  actual_cash_piasters     INTEGER,
+  difference_piasters      INTEGER,
+  status                   TEXT NOT NULL CHECK (status IN ('open','closed'))
+);
+CREATE INDEX IF NOT EXISTS idx_cash_shifts_status ON cash_shifts (status, opened_at DESC);
+
+CREATE TRIGGER IF NOT EXISTS trg_sales_journal AFTER INSERT ON sales
+BEGIN
+  INSERT OR IGNORE INTO journal_entries VALUES
+    ('je-sale-' || NEW.id, 'sale', NEW.id, 'قيد بيع ' || NEW.invoice_no, NEW.occurred_at);
+  INSERT INTO journal_lines
+    SELECT 'jl-sale-debit-' || NEW.id, 'je-sale-' || NEW.id,
+      CASE NEW.payment_method WHEN 'cash' THEN 'acc-cash' WHEN 'card' THEN 'acc-card'
+        WHEN 'wallet' THEN 'acc-wallet' ELSE 'acc-ar' END, NEW.total_piasters, 0
+    WHERE NEW.total_piasters > 0;
+  INSERT INTO journal_lines
+    SELECT 'jl-sale-revenue-' || NEW.id, 'je-sale-' || NEW.id, 'acc-sales', 0,
+      NEW.subtotal_piasters - NEW.discount_piasters
+    WHERE NEW.subtotal_piasters - NEW.discount_piasters > 0;
+  INSERT INTO journal_lines
+    SELECT 'jl-sale-vat-' || NEW.id, 'je-sale-' || NEW.id, 'acc-vat', 0, NEW.vat_piasters
+    WHERE NEW.vat_piasters > 0;
+  INSERT INTO journal_lines
+    SELECT 'jl-sale-cogs-' || NEW.id, 'je-sale-' || NEW.id, 'acc-cogs',
+      NEW.subtotal_piasters - NEW.discount_piasters - NEW.profit_piasters, 0
+    WHERE NEW.subtotal_piasters - NEW.discount_piasters - NEW.profit_piasters > 0;
+  INSERT INTO journal_lines
+    SELECT 'jl-sale-stock-' || NEW.id, 'je-sale-' || NEW.id, 'acc-inventory', 0,
+      NEW.subtotal_piasters - NEW.discount_piasters - NEW.profit_piasters
+    WHERE NEW.subtotal_piasters - NEW.discount_piasters - NEW.profit_piasters > 0;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_expenses_journal AFTER INSERT ON expenses
+BEGIN
+  INSERT OR IGNORE INTO journal_entries VALUES
+    ('je-expense-' || NEW.id, 'expense', NEW.id, 'مصروف: ' || NEW.label, NEW.recorded_at);
+  INSERT INTO journal_lines VALUES
+    ('jl-expense-debit-' || NEW.id, 'je-expense-' || NEW.id, 'acc-expense', NEW.amount_piasters, 0);
+  INSERT INTO journal_lines VALUES
+    ('jl-expense-credit-' || NEW.id, 'je-expense-' || NEW.id, 'acc-cash', 0, NEW.amount_piasters);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_payments_journal AFTER INSERT ON payments
+BEGIN
+  INSERT OR IGNORE INTO journal_entries VALUES
+    ('je-payment-' || NEW.id, 'payment', NEW.id, 'تسوية ذمة', NEW.paid_at);
+  INSERT INTO journal_lines VALUES
+    ('jl-payment-debit-' || NEW.id, 'je-payment-' || NEW.id,
+      CASE NEW.method WHEN 'cash' THEN 'acc-cash' WHEN 'card' THEN 'acc-card'
+        ELSE 'acc-wallet' END, NEW.amount_piasters, 0);
+  INSERT INTO journal_lines VALUES
+    ('jl-payment-credit-' || NEW.id, 'je-payment-' || NEW.id, 'acc-ar', 0, NEW.amount_piasters);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_purchase_journal AFTER INSERT ON stock_movements
+WHEN NEW.kind = 'purchase' AND NEW.qty_delta > 0
+BEGIN
+  INSERT OR IGNORE INTO journal_entries VALUES
+    ('je-stock-' || NEW.id, 'stock_purchase', NEW.id, 'توريد مخزون: ' || NEW.note, NEW.occurred_at);
+  INSERT INTO journal_lines
+    SELECT 'jl-stock-debit-' || NEW.id, 'je-stock-' || NEW.id, 'acc-inventory',
+      NEW.qty_delta * cost_piasters, 0 FROM products WHERE id = NEW.product_id AND cost_piasters > 0;
+  INSERT INTO journal_lines
+    SELECT 'jl-stock-credit-' || NEW.id, 'je-stock-' || NEW.id,
+      CASE WHEN NEW.counterparty = '' THEN 'acc-equity' ELSE 'acc-ap' END,
+      0, NEW.qty_delta * cost_piasters FROM products WHERE id = NEW.product_id AND cost_piasters > 0;
+END;
+
+-- Keep reset/delete operations tidy without rewriting historical business rows.
+CREATE TRIGGER IF NOT EXISTS trg_delete_invoice_credit BEFORE DELETE ON invoices
+BEGIN DELETE FROM credit_notes WHERE invoice_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_delete_sale_journal AFTER DELETE ON sales
+BEGIN DELETE FROM journal_entries WHERE reference_type = 'sale' AND reference_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_delete_expense_journal AFTER DELETE ON expenses
+BEGIN DELETE FROM journal_entries WHERE reference_type = 'expense' AND reference_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_delete_payment_journal AFTER DELETE ON payments
+BEGIN DELETE FROM journal_entries WHERE reference_type = 'payment' AND reference_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_delete_stock_journal AFTER DELETE ON stock_movements
+BEGIN DELETE FROM journal_entries WHERE reference_type = 'stock_purchase' AND reference_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_delete_credit_journal AFTER DELETE ON credit_notes
+BEGIN DELETE FROM journal_entries WHERE reference_type = 'credit_note' AND reference_id = OLD.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_reset_shifts AFTER DELETE ON business_profile
+BEGIN DELETE FROM cash_shifts; END;
+
 -- A staff row is also a sign-in account. `pin_hash` empty means the account
 -- exists but cannot sign in yet — the owner has not given it a passcode.
 CREATE TABLE IF NOT EXISTS staff (

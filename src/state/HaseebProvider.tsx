@@ -215,6 +215,10 @@ async function estimateSize(handle: Haseeb): Promise<number> {
     'stock_movements',
     'payments',
     'debts',
+    'journal_entries',
+    'journal_lines',
+    'credit_notes',
+    'cash_shifts',
     'audit_log',
     'sync_queue',
   ];

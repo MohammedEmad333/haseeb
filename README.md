@@ -26,12 +26,12 @@ rest on the device.
 | تسجيل المنشأة | `#/onboarding` | Three-step business registration; creates the encrypted local database |
 | لوحة التحكم | `#/` | Six KPIs, seven-day sales/profit chart, channel donut, quick actions |
 | البيع المباشر | `#/pos` | Camera/barcode scan, cart, cash/card/wallet/credit checkout, instant receipt |
-| الفواتير والأرباح | `#/finance` | Period/status filters, profitability, invoice details and printing |
+| الفواتير والأرباح | `#/finance` | Profitability, invoice printing, full returns and credit notes |
 | بيع الجملة | `#/wholesale` | Volume tiers, per-invoice custom discount, invoice builder |
 | دفتر الديون | `#/debts` | Receivables and payables, aging, payment history, WhatsApp/SMS reminders |
 | الطلبات والفواتير | `#/orders` | Create and follow customer/supplier orders, printable tax invoice with QR |
 | المخزن | `#/inventory` | Add products/opening stock, receiving, alerts, categories and movement timeline |
-| الإدارة العامة | `#/manage` | Financial health, expense entry, users/permissions, encrypted backup and audit trail |
+| الإدارة العامة | `#/manage` | Double-entry ledger, trial balance, cash shifts, expenses, permissions and audit trail |
 
 ## Stack and why
 
@@ -59,7 +59,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm run build      # production bundle in dist/
 npm run preview    # serve the built bundle
-npm test           # 94 tests
+npm test           # 97 tests
 npm run typecheck
 ```
 

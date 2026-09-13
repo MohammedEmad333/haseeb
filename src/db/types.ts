@@ -207,3 +207,50 @@ export interface SyncQueueEntry {
   queuedAt: string;
   syncedAt: string | null;
 }
+
+export type LedgerAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+
+export interface TrialBalanceRow {
+  id: string;
+  code: string;
+  name: string;
+  type: LedgerAccountType;
+  debit: number;
+  credit: number;
+  balance: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  referenceType: string;
+  referenceId: string;
+  description: string;
+  occurredAt: string;
+  debit: number;
+  credit: number;
+}
+
+export interface CreditNote {
+  id: string;
+  noteNo: string;
+  invoiceId: string;
+  paymentMethod: PaymentMethod;
+  subtotal: number;
+  vat: number;
+  total: number;
+  profit: number;
+  reason: string;
+  issuedAt: string;
+}
+
+export interface CashShift {
+  id: string;
+  openedBy: string;
+  openedAt: string;
+  openingCash: number;
+  closedAt: string | null;
+  expectedCash: number | null;
+  actualCash: number | null;
+  difference: number | null;
+  status: 'open' | 'closed';
+}

@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
-import { Badge, Button, Card, CardHead, ChipGroup, EmptyState, Tabs } from '@/ui/primitives';
+import { Badge, Button, Card, CardHead, ChipGroup, EmptyState, Input, Tabs } from '@/ui/primitives';
 import { AccentCard, AutoGrid, DataTable, PageHeader, type Column } from '@/ui/composites';
 import type { Invoice, InvoiceStatus, InvoiceWithLines } from '@/db/types';
 import { NOUNS, counted, dateFull, money, percent } from '@/lib/format';
@@ -32,14 +32,17 @@ const STATUS_TINT: Record<InvoiceStatus, { bg: string; fg: string; dot: string; 
 };
 
 export function Finance() {
-  const { sales, analytics, profile } = useHaseeb();
+  const { sales, analytics, accounting, profile, db } = useHaseeb();
   const [period, setPeriod] = useState<Period>('week');
   const [kind, setKind] = useState<Kind>('all');
   const [statuses, setStatuses] = useState<Set<InvoiceStatus>>(new Set());
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceWithLines | null>(null);
+  const [returnReason, setReturnReason] = useState('');
+  const [returning, setReturning] = useState(false);
+  const [returnError, setReturnError] = useState<string | null>(null);
 
   const { data: view } = useQuery(async () => {
-    if (!sales || !analytics) return null;
+    if (!sales || !analytics || !accounting) return null;
     const { from, to } = rangeFor(period);
     const all = await sales.invoices({
       from: from.toISOString(),
@@ -49,8 +52,9 @@ export function Finance() {
     return {
       summary: await analytics.financeSummary(from.toISOString(), to.toISOString()),
       rows: statuses.size === 0 ? all : all.filter((i) => statuses.has(i.status)),
+      creditNotes: await accounting.creditNotes(),
     };
-  }, [sales, analytics, period, kind, statuses]);
+  }, [sales, analytics, accounting, period, kind, statuses]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? '₪';
@@ -246,6 +250,38 @@ export function Finance() {
               <Button size="sm" onClick={() => setSelectedInvoice(null)}>إغلاق</Button>
             </div>
             <TaxInvoice invoice={selectedInvoice} profile={profile} />
+            {view.creditNotes.some((note) => note.invoiceId === selectedInvoice.id) ? (
+              <div className="hs-badge" style={{ marginBlockStart: 'var(--hs-sp-6)', background: 'var(--hs-warn-bg)', color: 'var(--hs-warn-text)' }}>
+                تم إصدار إشعار دائن وإرجاع هذه الفاتورة.
+              </div>
+            ) : (
+              <div className="hs-return-box">
+                <strong>إرجاع كامل للفاتورة</strong>
+                <p>يعيد الأصناف للمخزن ويخصم العملية من المبيعات ويصدر قيداً عكسياً متوازناً.</p>
+                <Input value={returnReason} onChange={(event) => setReturnReason(event.target.value)} placeholder="سبب المرتجع" />
+                {returnError ? <p role="alert" style={{ color: 'var(--hs-danger-text)' }}>{returnError}</p> : null}
+                <Button
+                  variant="action"
+                  disabled={returning || !returnReason.trim()}
+                  onClick={async () => {
+                    setReturning(true);
+                    setReturnError(null);
+                    try {
+                      await accounting!.returnInvoice(selectedInvoice.id, returnReason);
+                      await db?.flush();
+                      setSelectedInvoice(null);
+                      setReturnReason('');
+                    } catch (cause) {
+                      setReturnError(cause instanceof Error ? cause.message : 'تعذّر تسجيل المرتجع.');
+                    } finally {
+                      setReturning(false);
+                    }
+                  }}
+                >
+                  {returning ? 'جارٍ إصدار الإشعار…' : 'إصدار إشعار دائن وإرجاع الأصناف'}
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       ) : null}

@@ -8,29 +8,35 @@ import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Button, Card, CardBody, CardHead, EmptyState, Input, Meter } from '@/ui/primitives';
-import { AutoGrid, PageHeader, Timeline } from '@/ui/composites';
+import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
 import { Can } from '@/shell/Guard';
 import { StaffManager } from './manage/StaffManager';
 import { DataTransfer } from './manage/DataTransfer';
 import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
+import type { JournalEntry, TrialBalanceRow } from '@/db/types';
 
 export function Manage() {
-  const { analytics, ops, profile, reset, storageLocation, syncPending, numbering, setNumbering, engine } =
+  const { analytics, ops, accounting, profile, reset, storageLocation, syncPending, numbering, setNumbering, engine, db } =
     useHaseeb();
   const [confirmReset, setConfirmReset] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
+  const [shiftAction, setShiftAction] = useState<'open' | 'close' | null>(null);
   const navigate = useNavigate();
 
   const { data: view } = useQuery(async () => {
-    if (!analytics || !ops) return null;
+    if (!analytics || !ops || !accounting) return null;
     const expenses = await ops.expenses(new Date().toISOString().slice(0, 7));
     return {
       health: await analytics.financialHealth(),
       expenses,
       totalExpenses: expenses.reduce((t, e) => t + e.amount, 0),
       audit: await ops.audit(8),
+      trialBalance: await accounting.trialBalance(),
+      journals: await accounting.journals(8),
+      shift: await accounting.currentShift(),
+      shifts: await accounting.recentShifts(5),
     };
-  }, [analytics, ops]);
+  }, [analytics, ops, accounting]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? '₪';
@@ -133,6 +139,42 @@ export function Manage() {
           </CardBody>
         </Card>
       </div>
+
+      <AutoGrid min={420} style={{ alignItems: 'start', marginBlockEnd: 'var(--hs-sp-8)' }}>
+        <LedgerPanel rows={view.trialBalance} journals={view.journals} unit={unit} />
+        <Card panel style={{ minWidth: 0 }}>
+          <CardHead
+            title="وردية الصندوق"
+            sub={view.shift ? `مفتوحة بواسطة ${view.shift.openedBy} · ${dateAndTime(view.shift.openedAt)}` : 'لا توجد وردية مفتوحة'}
+            actions={
+              <Button variant="action" size="sm" onClick={() => setShiftAction(view.shift ? 'close' : 'open')}>
+                {view.shift ? 'إغلاق ومطابقة' : 'فتح وردية'}
+              </Button>
+            }
+          />
+          <CardBody>
+            {view.shift ? (
+              <div className="hs-shift-current">
+                <span>الرصيد الافتتاحي</span>
+                <strong className="hs-num">{money(view.shift.openingCash)} {unit}</strong>
+              </div>
+            ) : null}
+            {view.shifts.filter((shift) => shift.status === 'closed').length ? (
+              <ul className="hs-shift-list">
+                {view.shifts.filter((shift) => shift.status === 'closed').map((shift) => (
+                  <li key={shift.id}>
+                    <span>{dateAndTime(shift.closedAt!)}</span>
+                    <span className="hs-num">متوقع {money(shift.expectedCash ?? 0)}</span>
+                    <strong className="hs-num" style={{ color: shift.difference === 0 ? 'var(--hs-emerald)' : 'var(--hs-danger-text)' }}>
+                      الفرق {money(shift.difference ?? 0)}
+                    </strong>
+                  </li>
+                ))}
+              </ul>
+            ) : <EmptyState title="لا توجد ورديات مغلقة" body="افتح وردية لتبدأ مطابقة الصندوق مع المبيعات النقدية." />}
+          </CardBody>
+        </Card>
+      </AutoGrid>
 
       <AutoGrid min={340} style={{ alignItems: 'start', marginBlockEnd: 'var(--hs-sp-8)' }}>
         <Can ability="staff.manage">
@@ -239,7 +281,68 @@ export function Manage() {
           }}
         />
       ) : null}
+
+      {shiftAction ? (
+        <CashShiftDialog
+          mode={shiftAction}
+          unit={unit}
+          onClose={() => setShiftAction(null)}
+          onSubmit={async (amount) => {
+            if (shiftAction === 'open') await accounting!.openShift(amount);
+            else await accounting!.closeShift(amount);
+            await db?.flush();
+            setShiftAction(null);
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function LedgerPanel({ rows, journals, unit }: { rows: TrialBalanceRow[]; journals: JournalEntry[]; unit: string }) {
+  const debit = rows.reduce((sum, row) => sum + row.debit, 0);
+  const credit = rows.reduce((sum, row) => sum + row.credit, 0);
+  const columns: Column<TrialBalanceRow>[] = [
+    { key: 'account', header: 'الحساب', width: '1.6fr', render: (row) => <><span className="hs-num">{row.code}</span> · {row.name}</> },
+    { key: 'debit', header: 'مدين', width: '.8fr', render: (row) => <span className="hs-num">{money(row.debit)}</span> },
+    { key: 'credit', header: 'دائن', width: '.8fr', render: (row) => <span className="hs-num">{money(row.credit)}</span> },
+  ];
+  return (
+    <Card panel style={{ minWidth: 0 }}>
+      <CardHead title="ميزان المراجعة" sub={`قيود مزدوجة · بالـ${unit}`} actions={<span className="hs-badge" style={{ background: debit === credit ? 'var(--hs-mint-bg)' : 'var(--hs-danger-bg)', color: debit === credit ? 'var(--hs-mint-text)' : 'var(--hs-danger-text)' }}>{debit === credit ? 'متوازن' : 'غير متوازن'}</span>} />
+      <DataTable caption="ميزان المراجعة" compact columns={columns} rows={rows.filter((row) => row.debit || row.credit)} rowKey={(row) => row.id} />
+      <CardBody>
+        <div className="hs-row" style={{ justifyContent: 'space-between', fontWeight: 700 }}>
+          <span>الإجمالي المدين: <span className="hs-num">{money(debit)}</span></span>
+          <span>الإجمالي الدائن: <span className="hs-num">{money(credit)}</span></span>
+        </div>
+        <h3 style={{ marginBlock: 'var(--hs-sp-8) var(--hs-sp-4)' }}>آخر القيود</h3>
+        <Timeline label="آخر القيود المحاسبية" items={journals.map((entry) => ({ id: entry.id, dot: entry.debit === entry.credit ? 'var(--hs-emerald)' : 'var(--hs-danger-solid)', title: entry.description, meta: `${dateAndTime(entry.occurredAt)} · ${money(entry.debit)}` }))} />
+      </CardBody>
+    </Card>
+  );
+}
+
+function CashShiftDialog({ mode, unit, onClose, onSubmit }: { mode: 'open' | 'close'; unit: string; onClose: () => void; onSubmit: (amount: number) => Promise<void> }) {
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  return (
+    <div className="hs-dialog-scrim" role="presentation" onMouseDown={onClose}>
+      <form className="hs-dialog" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()} onSubmit={async (event) => {
+        event.preventDefault();
+        setSaving(true); setError(null);
+        try { await onSubmit(Math.round(Number(amount) * 100)); }
+        catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذّر حفظ الوردية.'); }
+        finally { setSaving(false); }
+      }}>
+        <CardHead title={mode === 'open' ? 'فتح وردية الصندوق' : 'إغلاق ومطابقة الصندوق'} sub={mode === 'open' ? 'أدخل النقد الموجود في الدرج عند البداية.' : 'عدّ النقد الفعلي في الدرج وأدخله للمقارنة.'} actions={<Button size="sm" onClick={onClose}>إغلاق</Button>} />
+        <label className="hs-field__label" htmlFor="shift-amount">{mode === 'open' ? 'الرصيد الافتتاحي' : 'الرصيد الفعلي'} ({unit})</label>
+        <Input id="shift-amount" autoFocus required type="number" min="0" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        {error ? <p role="alert" style={{ color: 'var(--hs-danger-text)' }}>{error}</p> : null}
+        <Button block variant="action" type="submit" disabled={saving || !amount}>{saving ? 'جارٍ الحفظ…' : mode === 'open' ? 'فتح الوردية' : 'إغلاق ومطابقة'}</Button>
+      </form>
+    </div>
   );
 }
 

@@ -27,11 +27,20 @@ adb logcat -c
 
 # Capacitor serves the bundle from https://localhost, so the query string is
 # passed through the launch URL the WebView opens.
-adb shell am start -n com.haseeb.app/.MainActivity > /dev/null
+adb shell input keyevent 82 || true
+adb shell am force-stop com.haseeb.app
+START_OUTPUT="$(adb shell am start -W -n com.haseeb.app/.MainActivity 2>&1)"
+echo "$START_OUTPUT"
+sleep 3
+if ! adb shell pidof com.haseeb.app > /dev/null; then
+  echo "Activity did not stay running; retrying through the launcher…"
+  adb shell monkey -p com.haseeb.app -c android.intent.category.LAUNCHER 1
+  sleep 3
+fi
 
 echo "Waiting for the self-test to report…"
 RESULT=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 80); do
   if RESULT=$(adb logcat -d | grep -o 'HASEEB_SELFTEST_RESULT .*' | tail -1) && [ -n "$RESULT" ]; then
     break
   fi
@@ -44,7 +53,8 @@ echo "------------------------"
 
 if [ -z "$RESULT" ]; then
   echo "::error::The self-test never reported. Recent app log:"
-  adb logcat -d | tail -120
+  adb shell dumpsys activity processes | grep -A8 -B3 com.haseeb.app || true
+  adb logcat -d | grep -E 'com\.haseeb|Capacitor|chromium|AndroidRuntime|FATAL' | tail -220 || true
   exit 1
 fi
 

@@ -10,6 +10,7 @@ import { CustomerRepository } from './repositories/customers';
 import { OperationsRepository } from './repositories/operations';
 import { AnalyticsRepository } from './repositories/analytics';
 import { AccountRepository } from './repositories/accounts';
+import { AccountingRepository } from './repositories/accounting';
 import { seed } from './seed';
 
 export interface Haseeb {
@@ -20,6 +21,7 @@ export interface Haseeb {
   customers: CustomerRepository;
   ops: OperationsRepository;
   analytics: AnalyticsRepository;
+  accounting: AccountingRepository;
 }
 
 export function repositories(db: HaseebDatabase): Haseeb {
@@ -31,6 +33,7 @@ export function repositories(db: HaseebDatabase): Haseeb {
     customers: new CustomerRepository(db),
     ops: new OperationsRepository(db),
     analytics: new AnalyticsRepository(db),
+    accounting: new AccountingRepository(db),
   };
 }
 
@@ -62,5 +65,6 @@ export {
   OperationsRepository,
   AnalyticsRepository,
   AccountRepository,
+  AccountingRepository,
 };
 export type { Account, SignInResult } from './repositories/accounts';

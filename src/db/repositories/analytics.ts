@@ -59,9 +59,15 @@ export class AnalyticsRepository {
        FROM sales WHERE occurred_at >= ? AND occurred_at < ?`,
       [fromIso, toIso],
     );
+    const returned = await this.db.get(
+      `SELECT COALESCE(SUM(total_piasters), 0) AS sales,
+              COALESCE(SUM(profit_piasters), 0) AS profit
+       FROM credit_notes WHERE issued_at >= ? AND issued_at < ?`,
+      [fromIso, toIso],
+    );
     return {
-      sales: Number(row?.sales ?? 0),
-      profit: Number(row?.profit ?? 0),
+      sales: Number(row?.sales ?? 0) - Number(returned?.sales ?? 0),
+      profit: Number(row?.profit ?? 0) - Number(returned?.profit ?? 0),
       count: Number(row?.n ?? 0),
     };
   }
@@ -94,10 +100,15 @@ export class AnalyticsRepository {
     const start = addDays(startOfDay(asOf), -6).toISOString();
     const end = addDays(startOfDay(asOf), 1).toISOString();
     const rows = await this.db.all(
-      `SELECT channel, COALESCE(SUM(total_piasters), 0) AS total
-       FROM sales WHERE occurred_at >= ? AND occurred_at < ?
-       GROUP BY channel`,
-      [start, end],
+      `SELECT channel, SUM(amount) AS total FROM (
+         SELECT channel, total_piasters AS amount FROM sales
+          WHERE occurred_at >= ? AND occurred_at < ?
+         UNION ALL
+         SELECT s.channel, -c.total_piasters AS amount FROM credit_notes c
+          JOIN invoices i ON i.id = c.invoice_id JOIN sales s ON s.id = i.sale_id
+          WHERE c.issued_at >= ? AND c.issued_at < ?
+       ) GROUP BY channel`,
+      [start, end, start, end],
     );
     const total = rows.reduce((t, r) => t + Number(r.total), 0);
     const meta: Record<string, { label: string; color: string }> = {
@@ -137,7 +148,14 @@ export class AnalyticsRepository {
         [fromIso, toIso],
       )) ?? 0,
     );
-    return settled + collected;
+    const refunded = Number(
+      (await this.db.value(
+        `SELECT COALESCE(SUM(total_piasters), 0) FROM credit_notes
+         WHERE payment_method <> 'credit' AND issued_at >= ? AND issued_at < ?`,
+        [fromIso, toIso],
+      )) ?? 0,
+    );
+    return settled + collected - refunded;
   }
 
   /** The six dashboard KPI tiles. */
@@ -268,10 +286,16 @@ export class AnalyticsRepository {
        FROM invoices WHERE issued_at >= ? AND issued_at <= ?`,
       [fromIso, toIso],
     );
+    const returned = Number(
+      (await this.db.value(
+        'SELECT COALESCE(SUM(total_piasters), 0) FROM credit_notes WHERE issued_at >= ? AND issued_at <= ?',
+        [fromIso, toIso],
+      )) ?? 0,
+    );
     const { sales, profit } = await this.totalsBetween(fromIso, toIso);
     const expenses = await this.#ops.expensesForRange(fromIso, toIso);
     return {
-      invoiced: Number(invoiceRow?.total ?? 0),
+      invoiced: Number(invoiceRow?.total ?? 0) - returned,
       invoiceCount: Number(invoiceRow?.n ?? 0),
       sales,
       grossProfit: profit,
@@ -358,8 +382,15 @@ export class AnalyticsRepository {
       (await this.db.value('SELECT COALESCE(SUM(cost_piasters * qty_on_hand), 0) FROM products')) ??
         0,
     );
+    const returnedCost = Number(
+      (await this.db.value(
+        `SELECT COALESCE(SUM(sl.cost_piasters * sl.qty), 0)
+         FROM credit_notes c JOIN invoices i ON i.id = c.invoice_id
+         JOIN sale_lines sl ON sl.sale_id = i.sale_id`,
+      )) ?? 0,
+    );
     if (onHandCost === 0) return 0;
-    return soldCost / onHandCost;
+    return Math.max(0, soldCost - returnedCost) / onHandCost;
   }
 }
 
