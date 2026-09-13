@@ -9,6 +9,19 @@ import {
 } from '@/domain/inventory';
 import { money } from '@/lib/format';
 
+export interface CreateProductInput {
+  sku: string;
+  barcode?: string;
+  name: string;
+  categoryId?: string | null;
+  cost: number;
+  price: number;
+  initialQty?: number;
+  lowThreshold?: number;
+  critThreshold?: number;
+  supplier?: string;
+}
+
 const PRODUCT_SELECT = `
   SELECT p.id, p.sku, p.barcode, p.name, p.category_id, c.name AS category_name,
          p.cost_piasters, p.price_piasters, p.qty_on_hand, p.low_threshold, p.crit_threshold
@@ -53,6 +66,87 @@ export class ProductRepository {
   async byId(id: string): Promise<Product | null> {
     const row = await this.db.get(`${PRODUCT_SELECT} WHERE p.id = ?`, [id]);
     return row ? toProduct(row) : null;
+  }
+
+  /** Create a catalogue item and book its opening stock as one transaction. */
+  async create(input: CreateProductInput): Promise<Product> {
+    const sku = input.sku.trim();
+    const barcode = input.barcode?.trim() ?? '';
+    const name = input.name.trim();
+    const initialQty = input.initialQty ?? 0;
+    const lowThreshold = input.lowThreshold ?? 20;
+    const critThreshold = input.critThreshold ?? 10;
+
+    if (!name) throw new Error('اسم الصنف مطلوب.');
+    if (!sku) throw new Error('رمز الصنف مطلوب.');
+    if (!Number.isInteger(input.cost) || input.cost < 0) throw new Error('تكلفة الصنف غير صحيحة.');
+    if (!Number.isInteger(input.price) || input.price < 0) throw new Error('سعر البيع غير صحيح.');
+    if (!Number.isInteger(initialQty) || initialQty < 0) throw new Error('الكمية الافتتاحية غير صحيحة.');
+    if (!Number.isInteger(lowThreshold) || lowThreshold < 0) throw new Error('حد الكمية المنخفضة غير صحيح.');
+    if (!Number.isInteger(critThreshold) || critThreshold < 0 || critThreshold > lowThreshold) {
+      throw new Error('حد النفاد يجب أن يكون بين صفر وحد الكمية المنخفضة.');
+    }
+
+    if (await this.db.get('SELECT id FROM products WHERE sku = ?', [sku])) {
+      throw new Error('رمز الصنف مستخدم مسبقاً.');
+    }
+    if (barcode && (await this.db.get('SELECT id FROM products WHERE barcode = ?', [barcode]))) {
+      throw new Error('الباركود مستخدم لصنف آخر.');
+    }
+
+    const id = newId();
+    const at = nowIso();
+    await this.db.mutate(
+      {
+        entity: 'product',
+        entityId: id,
+        action: 'create',
+        description: `إضافة صنف جديد — ${name}`,
+        payload: { sku, barcode: barcode || null, initialQty },
+      },
+      async (tx) => {
+        await tx.execute(
+          `INSERT INTO products
+             (id, sku, barcode, name, category_id, cost_piasters, price_piasters,
+              qty_on_hand, low_threshold, crit_threshold, image_url, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+          [
+            id,
+            sku,
+            barcode || null,
+            name,
+            input.categoryId || null,
+            input.cost,
+            input.price,
+            initialQty,
+            lowThreshold,
+            critThreshold,
+            at,
+          ],
+        );
+        if (initialQty > 0) {
+          await tx.execute(
+            `INSERT INTO stock_movements
+               (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
+             VALUES (?, ?, 'purchase', ?, ?, ?, ?, ?, ?)`,
+            [
+              newId(),
+              id,
+              initialQty,
+              initialQty,
+              this.db.actor,
+              input.supplier?.trim() ?? '',
+              'رصيد افتتاحي',
+              at,
+            ],
+          );
+        }
+      },
+    );
+
+    const created = await this.byId(id);
+    if (!created) throw new Error('تعذّر قراءة الصنف بعد إضافته.');
+    return created;
   }
 
   /** Barcode scan, then a name/SKU contains-match — what the POS search does. */

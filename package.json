@@ -20,11 +20,13 @@
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
     "@capacitor/core": "^7.6.9",
     "@capacitor/filesystem": "^7.1.8",
     "@capacitor/share": "^7.0.4",
     "@fontsource/ibm-plex-mono": "^5.0.13",
     "@fontsource/ibm-plex-sans-arabic": "^5.0.20",
+    "barcode-detector": "^3.2.2",
     "idb-keyval": "^6.2.1",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

@@ -8,7 +8,9 @@
  * at all.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { BarcodeFormat, BarcodeScanner } from '@capacitor-mlkit/barcode-scanning';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Button, Card, CardHead, EmptyState, ErrorState, Input, Select } from '@/ui/primitives';
@@ -18,6 +20,7 @@ import type { PaymentMethod, Product } from '@/db/types';
 import { computeTotals } from '@/domain/tax';
 import { money, moneyRounded, num, percent, timeAndDate } from '@/lib/format';
 import { marginPercent } from '@/domain/inventory';
+import { BarcodeCamera } from '@/screens/parts/BarcodeCamera';
 
 const PAYMENT_TINT: Record<PaymentMethod, { bg: string; fg: string; label: string }> = {
   cash: { bg: 'var(--hs-mint-bg)', fg: 'var(--hs-mint-text)', label: 'نقدي' },
@@ -33,6 +36,8 @@ export function PointOfSale() {
   const [customerId, setCustomerId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
 
   const { data: view } = useQuery(async () => {
@@ -74,7 +79,7 @@ export function PointOfSale() {
 
   if (!view) return null;
 
-  const addToCart = (p: Product): void => {
+  const addToCart = useCallback((p: Product): void => {
     setError(null);
     setCart((current) => {
       const existing = current.find((line) => line.productId === p.id);
@@ -93,6 +98,64 @@ export function PointOfSale() {
         { productId: p.id, name: p.name, qty: 1, unit: p.price, cost: p.cost },
       ];
     });
+  }, []);
+
+  const acceptBarcode = useCallback(async (code: string): Promise<void> => {
+    setCameraOpen(false);
+    setSearch(code);
+    const matches = await products!.search(code);
+    const product = matches.find((item) => item.barcode === code || item.sku === code);
+    if (!product) {
+      setError(`لا يوجد صنف مرتبط بالباركود «${code}». أضفه أولاً من شاشة المخزن.`);
+      return;
+    }
+    addToCart(product);
+    setSearch('');
+    setFlash(`تمت إضافة «${product.name}» إلى الفاتورة.`);
+  }, [addToCart, products, setSearch]);
+
+  const startCameraScan = async (): Promise<void> => {
+    setError(null);
+    if (!Capacitor.isNativePlatform()) {
+      setCameraOpen(true);
+      return;
+    }
+
+    setScanning(true);
+    try {
+      const { supported } = await BarcodeScanner.isSupported();
+      if (!supported) throw new Error('هذا الجهاز لا يدعم مسح الباركود بالكاميرا.');
+
+      const permission = await BarcodeScanner.requestPermissions();
+      if (permission.camera !== 'granted') {
+        throw new Error('يجب منح حسيب إذن الكاميرا لاستخدام الماسح.');
+      }
+
+      if (Capacitor.getPlatform() === 'android') {
+        const module = await BarcodeScanner.isGoogleBarcodeScannerModuleAvailable();
+        if (!module.available) await BarcodeScanner.installGoogleBarcodeScannerModule();
+      }
+
+      const { barcodes } = await BarcodeScanner.scan({
+        formats: [
+          BarcodeFormat.Ean13,
+          BarcodeFormat.Ean8,
+          BarcodeFormat.UpcA,
+          BarcodeFormat.UpcE,
+          BarcodeFormat.Code128,
+          BarcodeFormat.Code39,
+          BarcodeFormat.Itf,
+          BarcodeFormat.QrCode,
+        ],
+        autoZoom: true,
+      });
+      const code = barcodes[0]?.rawValue.trim();
+      if (code) await acceptBarcode(code);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذّر تشغيل ماسح الباركود.');
+    } finally {
+      setScanning(false);
+    }
   };
 
   const setQty = async (productId: string, qty: number): Promise<void> => {
@@ -258,8 +321,8 @@ export function PointOfSale() {
                   style={{ background: 'transparent', border: 'none' }}
                 />
               </div>
-              <Button variant="action" onClick={() => scanRef.current?.focus()}>
-                تشغيل الماسح
+              <Button variant="action" disabled={scanning} onClick={() => void startCameraScan()}>
+                {scanning ? 'جارٍ تشغيل الكاميرا…' : 'مسح بالكاميرا'}
               </Button>
             </div>
           </Card>
@@ -328,6 +391,13 @@ export function PointOfSale() {
           .hs-pos-split { grid-template-columns: minmax(0, 1fr) !important; }
         }
       `}</style>
+
+      {cameraOpen ? (
+        <BarcodeCamera
+          onClose={() => setCameraOpen(false)}
+          onDetected={(code) => void acceptBarcode(code)}
+        />
+      ) : null}
     </>
   );
 }
