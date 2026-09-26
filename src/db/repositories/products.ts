@@ -164,7 +164,7 @@ export class ProductRepository {
             note: 'رصيد افتتاحي',
             at,
           });
-          if (paymentMethod === 'credit' && supplier && amount > 0) {
+          if (supplier && amount > 0) {
             await tx.execute(
               `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
                  opened_at, due_at, note)
@@ -310,7 +310,7 @@ export class ProductRepository {
             note: input.note?.trim() || 'توريد مخزون',
             at,
           });
-          if (supplier && amount > 0) {
+          if (paymentMethod === 'credit' && supplier && amount > 0) {
             await tx.execute(
               `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
                  opened_at, due_at, note)
