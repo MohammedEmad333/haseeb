@@ -94,8 +94,20 @@ export class CustomerRepository {
       [direction],
     );
     const paymentRows = await this.db.all(
-      `SELECT customer_id, amount_piasters, paid_at FROM payments
-       ORDER BY customer_id, paid_at, rowid`,
+      `SELECT p.customer_id, p.amount_piasters, p.paid_at
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       WHERE d.direction = ?
+          OR (
+            p.debt_id IS NULL
+            AND (
+              (? = 'payable' AND c.kind = 'supplier')
+              OR (? = 'receivable' AND c.kind <> 'supplier')
+            )
+          )
+       ORDER BY p.customer_id, p.paid_at, p.rowid`,
+      [direction, direction, direction],
     );
 
     const paid = new Map<string, number>();
@@ -216,8 +228,17 @@ export class CustomerRepository {
     direction?: 'receivable' | 'payable';
     note?: string;
   }): Promise<string> {
+    if (!Number.isInteger(input.amount) || input.amount <= 0) {
+      throw new Error('قيمة الدين يجب أن تكون مبلغاً صحيحاً أكبر من صفر.');
+    }
+    if (!Number.isFinite(new Date(input.dueAt).getTime())) {
+      throw new Error('تاريخ استحقاق الدين غير صحيح.');
+    }
+
     const id = newId();
     const customer = await this.byId(input.customerId);
+    if (!customer) throw new Error('العميل غير موجود.');
+
     await this.db.mutate(
       {
         entity: 'debt',
@@ -252,18 +273,61 @@ export class CustomerRepository {
     amount: number;
     method: SettlementMethod;
     debtId?: string | null;
+    direction?: 'receivable' | 'payable';
     note?: string;
   }): Promise<string> {
+    if (!Number.isInteger(input.amount) || input.amount <= 0) {
+      throw new Error('قيمة السداد يجب أن تكون مبلغاً صحيحاً أكبر من صفر.');
+    }
+
+    const customer = await this.byId(input.customerId);
+    if (!customer) throw new Error('العميل غير موجود.');
+
+    const direction =
+      input.direction ?? (customer.kind === 'supplier' ? 'payable' : 'receivable');
+
+    let targetDebtId = input.debtId ?? null;
+    if (targetDebtId) {
+      const debt = await this.db.get(
+        'SELECT customer_id, direction FROM debts WHERE id = ?',
+        [targetDebtId],
+      );
+      if (!debt) throw new Error('الدين المحدد غير موجود.');
+      if (String(debt.customer_id) !== input.customerId) {
+        throw new Error('الدين المحدد لا يخص هذا العميل.');
+      }
+      if (String(debt.direction) !== direction) {
+        throw new Error('اتجاه الدين المحدد لا يطابق نوع السداد.');
+      }
+    }
+
+    const summary = (await this.debtors(direction)).find((row) => row.id === input.customerId);
+    const outstanding = summary?.outstanding ?? 0;
+    if (input.amount > outstanding) {
+      throw new Error('قيمة السداد أكبر من الرصيد المستحق.');
+    }
+
+    if (!targetDebtId) {
+      targetDebtId =
+        (await this.db.value<string>(
+          `SELECT id FROM debts
+           WHERE customer_id = ? AND direction = ?
+           ORDER BY opened_at, rowid
+           LIMIT 1`,
+          [input.customerId, direction],
+        )) ?? null;
+    }
+    if (!targetDebtId) throw new Error('لا يوجد دين مفتوح لتسجيل السداد عليه.');
+
     const id = newId();
     const at = nowIso();
-    const customer = await this.byId(input.customerId);
     await this.db.mutate(
       {
         entity: 'payment',
         entityId: id,
         action: 'create',
-        description: `سداد ${money(input.amount)} من «${customer?.name ?? input.customerId}»`,
-        payload: input,
+        description: `سداد ${money(input.amount)} من «${customer.name}»`,
+        payload: { ...input, direction, debtId: targetDebtId },
       },
       async (tx) => {
         await tx.execute(
@@ -271,7 +335,7 @@ export class CustomerRepository {
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
-            input.debtId ?? null,
+            targetDebtId,
             input.customerId,
             input.amount,
             input.method,
