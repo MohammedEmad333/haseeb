@@ -11,7 +11,7 @@ import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Select } from '@/ui/primitives';
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
-import type { Category, Product, StockMovement } from '@/db/types';
+import type { Category, Customer, Product, StockMovement } from '@/db/types';
 import type { CreateProductInput } from '@/db/repositories/products';
 import { MOVEMENT_LABEL, STOCK_STATUS_LABEL, type StockStatus } from '@/domain/inventory';
 import { NOUNS, counted, dateAndTime, money, num, signedNum } from '@/lib/format';
@@ -30,20 +30,21 @@ const MOVEMENT_TINT: Record<string, { dot: string; fg: string }> = {
 };
 
 export function Inventory() {
-  const { products, profile, db } = useHaseeb();
+  const { products, customers, profile, db } = useHaseeb();
   const [category, setCategory] = useState<string>('all');
   const [receiving, setReceiving] = useState<Product | null>(null);
   const [adding, setAdding] = useState(false);
 
   const { data: view } = useQuery(async () => {
-    if (!products) return null;
+    if (!products || !customers) return null;
     return {
       categories: await products.categories(),
       rows: await products.list(category === 'all' ? null : category),
       movements: await products.movements(8),
       alerts: await products.criticalCount(),
+      suppliers: await customers.list('supplier'),
     };
-  }, [products, category]);
+  }, [products, customers, category]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? '₪';
@@ -199,12 +200,15 @@ export function Inventory() {
         <ReceiveDialog
           product={receiving}
           onClose={() => setReceiving(null)}
-          onSubmit={async (qty, supplier) => {
+          suppliers={view.suppliers}
+          onSubmit={async (qty, supplierId) => {
+            const supplier = view.suppliers.find((item) => item.id === supplierId);
             await products!.move({
               productId: receiving.id,
               kind: 'purchase',
               qty,
-              counterparty: supplier,
+              supplierId: supplierId || null,
+              counterparty: supplier?.name ?? '',
             });
             await db?.flush();
             setReceiving(null);
@@ -215,6 +219,7 @@ export function Inventory() {
       {adding ? (
         <AddProductDialog
           categories={view.categories}
+          suppliers={view.suppliers}
           unit={unit}
           onClose={() => setAdding(false)}
           onSubmit={async (input) => {
@@ -247,11 +252,13 @@ function CategoryChip({
 
 function AddProductDialog({
   categories,
+  suppliers,
   unit,
   onClose,
   onSubmit,
 }: {
   categories: readonly Category[];
+  suppliers: readonly Customer[];
   unit: string;
   onClose: () => void;
   onSubmit: (input: CreateProductInput) => void | Promise<void>;
@@ -263,7 +270,7 @@ function AddProductDialog({
   const [cost, setCost] = useState('');
   const [price, setPrice] = useState('');
   const [qty, setQty] = useState('0');
-  const [supplier, setSupplier] = useState('');
+  const [supplierId, setSupplierId] = useState('');
   const [low, setLow] = useState('20');
   const [critical, setCritical] = useState('10');
   const [error, setError] = useState<string | null>(null);
@@ -302,7 +309,8 @@ function AddProductDialog({
         initialQty: quantity,
         lowThreshold,
         critThreshold,
-        supplier: supplier.trim(),
+        supplierId: supplierId || null,
+        supplier: suppliers.find((item) => item.id === supplierId)?.name ?? '',
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذّرت إضافة الصنف.');
@@ -363,7 +371,10 @@ function AddProductDialog({
             <Input id="product-qty" className="hs-input hs-num" type="number" min="0" step="1" value={qty} onChange={(e) => setQty(e.target.value)} />
           </Field>
           <Field label="المورد (اختياري)" id="product-supplier">
-            <Input id="product-supplier" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+            <Select id="product-supplier" value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
+              <option value="">بدون مورد محدد</option>
+              {suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </Select>
           </Field>
           <Field label="حد الكمية المنخفضة" id="product-low">
             <Input id="product-low" className="hs-input hs-num" type="number" min="0" step="1" value={low} onChange={(e) => setLow(e.target.value)} />
@@ -404,15 +415,17 @@ function toPiasters(value: string): number | null {
 /** Receiving stock — the one write this screen makes. */
 function ReceiveDialog({
   product,
+  suppliers,
   onClose,
   onSubmit,
 }: {
   product: Product;
+  suppliers: readonly Customer[];
   onClose: () => void;
-  onSubmit: (qty: number, supplier: string) => void | Promise<void>;
+  onSubmit: (qty: number, supplierId: string) => void | Promise<void>;
 }) {
   const [qty, setQty] = useState('10');
-  const [supplier, setSupplier] = useState('');
+  const [supplierId, setSupplierId] = useState('');
   const parsed = Number(qty);
   const invalid = !Number.isInteger(parsed) || parsed <= 0;
 
@@ -470,12 +483,14 @@ function ReceiveDialog({
             <label className="hs-field__label" htmlFor="receive-supplier">
               المورد
             </label>
-            <Input
+            <Select
               id="receive-supplier"
-              value={supplier}
-              onChange={(e) => setSupplier(e.target.value)}
-              placeholder="مثال: الشرق للتوزيع"
-            />
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+            >
+              <option value="">بدون مورد محدد</option>
+              {suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </Select>
           </div>
 
           <div className="hs-row" style={{ gap: 'var(--hs-sp-4)' }}>
@@ -486,7 +501,7 @@ function ReceiveDialog({
               variant="action"
               style={{ flex: 1 }}
               disabled={invalid}
-              onClick={() => void onSubmit(parsed, supplier.trim())}
+              onClick={() => void onSubmit(parsed, supplierId)}
             >
               تسجيل التوريد
             </Button>
