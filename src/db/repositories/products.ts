@@ -184,6 +184,9 @@ export class ProductRepository {
   }
 
   async updatePrice(id: string, price: number, actor?: string): Promise<void> {
+    if (!Number.isInteger(price) || price < 0) {
+      throw new Error('سعر البيع غير صحيح.');
+    }
     const before = await this.byId(id);
     if (!before) throw new Error(`unknown product ${id}`);
     await this.db.mutate(
@@ -213,6 +216,13 @@ export class ProductRepository {
     note?: string;
     occurredAt?: string;
   }): Promise<number> {
+    if (!Number.isInteger(input.qty) || input.qty === 0) {
+      throw new Error('كمية الحركة يجب أن تكون عدداً صحيحاً غير صفري.');
+    }
+    if (input.kind !== 'adjustment' && input.qty < 0) {
+      throw new Error('كمية التوريد أو البيع أو المرتجع يجب أن تكون أكبر من صفر.');
+    }
+
     const product = await this.byId(input.productId);
     if (!product) throw new Error(`unknown product ${input.productId}`);
     const qtyAfter = applyMovement(product.qtyOnHand, input.kind, input.qty);
