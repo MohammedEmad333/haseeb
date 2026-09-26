@@ -89,12 +89,12 @@ export class CustomerRepository {
     const customers = new Map((await this.list()).map((c) => [c.id, c]));
 
     const debtRows = await this.db.all(
-      `SELECT customer_id, principal_piasters, due_at FROM debts
+      `SELECT id, customer_id, principal_piasters, due_at FROM debts
        WHERE direction = ? ORDER BY customer_id, opened_at, rowid`,
       [direction],
     );
     const paymentRows = await this.db.all(
-      `SELECT p.customer_id, p.amount_piasters, p.paid_at
+      `SELECT p.customer_id, p.debt_id, p.amount_piasters, p.paid_at
        FROM payments p
        LEFT JOIN debts d ON d.id = p.debt_id
        LEFT JOIN customers c ON c.id = p.customer_id
@@ -110,20 +110,31 @@ export class CustomerRepository {
       [direction, direction, direction],
     );
 
-    const paid = new Map<string, number>();
+    const unlinkedPaid = new Map<string, number>();
+    const linkedPaid = new Map<string, number>();
     const lastPaid = new Map<string, string>();
     for (const r of paymentRows) {
-      const id = String(r.customer_id);
-      paid.set(id, (paid.get(id) ?? 0) + Number(r.amount_piasters));
-      lastPaid.set(id, String(r.paid_at));
+      const customerId = String(r.customer_id);
+      const amount = Number(r.amount_piasters);
+      if (r.debt_id == null) {
+        unlinkedPaid.set(customerId, (unlinkedPaid.get(customerId) ?? 0) + amount);
+      } else {
+        const debtId = String(r.debt_id);
+        linkedPaid.set(debtId, (linkedPaid.get(debtId) ?? 0) + amount);
+      }
+      lastPaid.set(customerId, String(r.paid_at));
     }
 
-    const grouped = new Map<string, Array<{ principal: number; dueAt: string }>>();
+    const grouped = new Map<string, Array<{ id: string; principal: number; dueAt: string }>>();
     for (const r of debtRows) {
-      const id = String(r.customer_id);
-      const list = grouped.get(id) ?? [];
-      list.push({ principal: Number(r.principal_piasters), dueAt: String(r.due_at) });
-      grouped.set(id, list);
+      const customerId = String(r.customer_id);
+      const list = grouped.get(customerId) ?? [];
+      list.push({
+        id: String(r.id),
+        principal: Number(r.principal_piasters),
+        dueAt: String(r.due_at),
+      });
+      grouped.set(customerId, list);
     }
 
     const summaries: DebtorSummary[] = [];
@@ -131,14 +142,18 @@ export class CustomerRepository {
       const customer = customers.get(customerId);
       if (!customer) continue;
 
-      let credit = paid.get(customerId) ?? 0;
+      let fifoCredit = unlinkedPaid.get(customerId) ?? 0;
       let outstanding = 0;
       let governingDue: string | null = null;
 
       for (const debt of debts) {
-        const applied = Math.min(credit, debt.principal);
-        credit -= applied;
-        const remaining = debt.principal - applied;
+        const linked = linkedPaid.get(debt.id) ?? 0;
+        const linkedApplied = Math.min(linked, debt.principal);
+        fifoCredit += Math.max(0, linked - linkedApplied);
+        const afterLinked = debt.principal - linkedApplied;
+        const fifoApplied = Math.min(fifoCredit, afterLinked);
+        fifoCredit -= fifoApplied;
+        const remaining = afterLinked - fifoApplied;
         if (remaining > 0) {
           outstanding += remaining;
           // The oldest debt still carrying a balance sets the due date.
