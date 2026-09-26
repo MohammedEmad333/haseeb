@@ -144,7 +144,15 @@ export class AnalyticsRepository {
     );
     const collected = Number(
       (await this.db.value(
-        'SELECT COALESCE(SUM(amount_piasters), 0) FROM payments WHERE paid_at >= ? AND paid_at < ?',
+        `SELECT COALESCE(SUM(p.amount_piasters), 0)
+         FROM payments p
+         LEFT JOIN debts d ON d.id = p.debt_id
+         LEFT JOIN customers c ON c.id = p.customer_id
+         WHERE p.paid_at >= ? AND p.paid_at < ?
+           AND (
+             d.direction = 'receivable'
+             OR (p.debt_id IS NULL AND c.kind <> 'supplier')
+           )`,
         [fromIso, toIso],
       )) ?? 0,
     );

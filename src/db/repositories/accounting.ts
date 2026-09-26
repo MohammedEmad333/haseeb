@@ -203,10 +203,27 @@ export class AccountingRepository {
 
   async #cashMovementSince(from: string): Promise<number> {
     const sales = Number((await this.db.value("SELECT COALESCE(SUM(total_piasters),0) FROM sales WHERE payment_method='cash' AND occurred_at>=?", [from])) ?? 0);
-    const payments = Number((await this.db.value("SELECT COALESCE(SUM(amount_piasters),0) FROM payments WHERE method='cash' AND paid_at>=?", [from])) ?? 0);
+    const received = Number((await this.db.value(
+      `SELECT COALESCE(SUM(p.amount_piasters),0)
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       WHERE p.method='cash' AND p.paid_at>=?
+         AND (d.direction='receivable' OR (p.debt_id IS NULL AND c.kind <> 'supplier'))`,
+      [from],
+    )) ?? 0);
+    const paidToSuppliers = Number((await this.db.value(
+      `SELECT COALESCE(SUM(p.amount_piasters),0)
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       WHERE p.method='cash' AND p.paid_at>=?
+         AND (d.direction='payable' OR (p.debt_id IS NULL AND c.kind = 'supplier'))`,
+      [from],
+    )) ?? 0);
     const refunds = Number((await this.db.value("SELECT COALESCE(SUM(total_piasters),0) FROM credit_notes WHERE payment_method='cash' AND issued_at>=?", [from])) ?? 0);
     const expenses = Number((await this.db.value('SELECT COALESCE(SUM(amount_piasters),0) FROM expenses WHERE recorded_at>=?', [from])) ?? 0);
-    return sales + payments - refunds - expenses;
+    return sales + received - paidToSuppliers - refunds - expenses;
   }
 
   async #nextCreditNoteNo(): Promise<string> {
@@ -235,8 +252,13 @@ export class AccountingRepository {
        ON e.reference_type='expense' AND e.reference_id=x.id WHERE e.id IS NULL`,
     );
     const payments = await this.db.all(
-      `SELECT p.* FROM payments p LEFT JOIN journal_entries e
-       ON e.reference_type='payment' AND e.reference_id=p.id WHERE e.id IS NULL`,
+      `SELECT p.*, d.direction AS debt_direction, c.kind AS customer_kind
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       LEFT JOIN journal_entries e
+         ON e.reference_type='payment' AND e.reference_id=p.id
+       WHERE e.id IS NULL`,
     );
     const purchases = await this.db.all(
       `SELECT m.*, p.cost_piasters FROM stock_movements m JOIN products p ON p.id=m.product_id
@@ -268,8 +290,17 @@ export class AccountingRepository {
           const id = String(payment.id); const journal = `je-payment-${id}`; const amount = Number(payment.amount_piasters);
           await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'payment', id, 'تسوية ذمة', String(payment.paid_at)]);
           const method = String(payment.method);
-          await addLine(tx, journal, method === 'cash' ? 'acc-cash' : method === 'card' ? 'acc-card' : 'acc-wallet', amount, 0);
-          await addLine(tx, journal, 'acc-ar', 0, amount);
+          const account = method === 'cash' ? 'acc-cash' : method === 'card' ? 'acc-card' : 'acc-wallet';
+          const direction = payment.debt_direction == null
+            ? (String(payment.customer_kind) === 'supplier' ? 'payable' : 'receivable')
+            : String(payment.debt_direction);
+          if (direction === 'payable') {
+            await addLine(tx, journal, 'acc-ap', amount, 0);
+            await addLine(tx, journal, account, 0, amount);
+          } else {
+            await addLine(tx, journal, account, amount, 0);
+            await addLine(tx, journal, 'acc-ar', 0, amount);
+          }
         }
         for (const purchase of purchases) {
           const id = String(purchase.id); const journal = `je-stock-${id}`; const amount = Number(purchase.qty_delta) * Number(purchase.cost_piasters);
