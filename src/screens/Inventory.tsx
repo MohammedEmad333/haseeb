@@ -11,7 +11,7 @@ import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Select } from '@/ui/primitives';
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
-import type { Category, Product, StockMovement } from '@/db/types';
+import type { Category, Customer, Product, StockMovement } from '@/db/types';
 import type { CreateProductInput } from '@/db/repositories/products';
 import { MOVEMENT_LABEL, STOCK_STATUS_LABEL, type StockStatus } from '@/domain/inventory';
 import { NOUNS, counted, dateAndTime, money, num, signedNum } from '@/lib/format';
@@ -30,20 +30,21 @@ const MOVEMENT_TINT: Record<string, { dot: string; fg: string }> = {
 };
 
 export function Inventory() {
-  const { products, profile, db } = useHaseeb();
+  const { products, customers, profile, db } = useHaseeb();
   const [category, setCategory] = useState<string>('all');
   const [receiving, setReceiving] = useState<Product | null>(null);
   const [adding, setAdding] = useState(false);
 
   const { data: view } = useQuery(async () => {
-    if (!products) return null;
+    if (!products || !customers) return null;
     return {
       categories: await products.categories(),
       rows: await products.list(category === 'all' ? null : category),
       movements: await products.movements(8),
       alerts: await products.criticalCount(),
+      suppliers: await customers.list('supplier'),
     };
-  }, [products, category]);
+  }, [products, customers, category]);
 
   if (!view) return null;
   const unit = profile?.currencyLabel ?? '₪';
@@ -198,13 +199,15 @@ export function Inventory() {
       {receiving ? (
         <ReceiveDialog
           product={receiving}
+          suppliers={view.suppliers}
           onClose={() => setReceiving(null)}
-          onSubmit={async (qty, supplier) => {
+          onSubmit={async (qty, purchaseMethod, supplierId) => {
             await products!.move({
               productId: receiving.id,
               kind: 'purchase',
               qty,
-              counterparty: supplier,
+              purchaseMethod,
+              counterpartyId: supplierId || null,
             });
             await db?.flush();
             setReceiving(null);
@@ -401,24 +404,46 @@ function toPiasters(value: string): number | null {
   return Math.round(parsed * 100);
 }
 
-/** Receiving stock — the one write this screen makes. */
+/** Receiving stock — one atomic stock + accounting operation. */
 function ReceiveDialog({
   product,
+  suppliers,
   onClose,
   onSubmit,
 }: {
   product: Product;
+  suppliers: readonly Customer[];
   onClose: () => void;
-  onSubmit: (qty: number, supplier: string) => void | Promise<void>;
+  onSubmit: (
+    qty: number,
+    purchaseMethod: 'cash' | 'credit',
+    supplierId: string,
+  ) => void | Promise<void>;
 }) {
   const [qty, setQty] = useState('10');
-  const [supplier, setSupplier] = useState('');
+  const [purchaseMethod, setPurchaseMethod] = useState<'cash' | 'credit'>('cash');
+  const [supplierId, setSupplierId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const parsed = Number(qty);
-  const invalid = !Number.isInteger(parsed) || parsed <= 0;
+  const invalidQty = !Number.isInteger(parsed) || parsed <= 0;
+  const invalid = invalidQty || (purchaseMethod === 'credit' && !supplierId);
+
+  const save = async (): Promise<void> => {
+    if (invalid) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSubmit(parsed, purchaseMethod, supplierId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذّر تسجيل التوريد.');
+      setSaving(false);
+    }
+  };
 
   return (
     <>
-      <div className="hs-drawer__scrim" onClick={onClose} />
+      <div className="hs-drawer__scrim" onClick={saving ? undefined : onClose} />
       <div
         role="dialog"
         aria-modal="true"
@@ -429,7 +454,7 @@ function ReceiveDialog({
           insetInlineStart: '50%',
           transform: 'translate(50%, -50%)',
           zIndex: 62,
-          width: 'min(420px, 90vw)',
+          width: 'min(440px, 90vw)',
           background: 'var(--hs-surface)',
           borderRadius: 'var(--hs-r-panel)',
           padding: 'var(--hs-sp-10)',
@@ -441,13 +466,12 @@ function ReceiveDialog({
         </h2>
         <p style={{ margin: '5px 0 var(--hs-sp-9)', fontSize: 'var(--hs-fs-label)', color: 'var(--hs-text-muted)' }}>
           الرصيد الحالي <span className="hs-num">{num(product.qtyOnHand)}</span>
+          {' · '}تكلفة الوحدة <span className="hs-num">{money(product.cost)}</span>
         </p>
 
         <div className="hs-stack" style={{ gap: 'var(--hs-sp-7)' }}>
           <div>
-            <label className="hs-field__label" htmlFor="receive-qty">
-              الكمية الواردة
-            </label>
+            <label className="hs-field__label" htmlFor="receive-qty">الكمية الواردة</label>
             <Input
               id="receive-qty"
               className="hs-input hs-num"
@@ -456,39 +480,87 @@ function ReceiveDialog({
               step={1}
               value={qty}
               onChange={(e) => setQty(e.target.value)}
-              aria-invalid={invalid}
+              aria-invalid={invalidQty}
               autoFocus
             />
-            {invalid ? (
-              <span className="hs-field__error" role="alert">
-                أدخل كمية صحيحة أكبر من صفر.
-              </span>
+            {invalidQty ? (
+              <span className="hs-field__error" role="alert">أدخل كمية صحيحة أكبر من صفر.</span>
             ) : null}
           </div>
 
           <div>
-            <label className="hs-field__label" htmlFor="receive-supplier">
-              المورد
-            </label>
-            <Input
-              id="receive-supplier"
-              value={supplier}
-              onChange={(e) => setSupplier(e.target.value)}
-              placeholder="مثال: الشرق للتوزيع"
-            />
+            <span className="hs-field__label">طريقة التسوية</span>
+            <div className="hs-row" style={{ gap: 'var(--hs-sp-3)', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="hs-chip"
+                aria-pressed={purchaseMethod === 'cash'}
+                onClick={() => setPurchaseMethod('cash')}
+              >
+                مدفوع نقداً
+              </button>
+              <button
+                type="button"
+                className="hs-chip"
+                aria-pressed={purchaseMethod === 'credit'}
+                onClick={() => setPurchaseMethod('credit')}
+              >
+                آجل على المورد
+              </button>
+            </div>
           </div>
 
+          <div>
+            <label className="hs-field__label" htmlFor="receive-supplier">
+              المورد {purchaseMethod === 'cash' ? '(اختياري)' : ''}
+            </label>
+            <Select
+              id="receive-supplier"
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              aria-invalid={purchaseMethod === 'credit' && !supplierId}
+            >
+              <option value="">
+                {suppliers.length === 0 ? 'لا يوجد موردون مسجلون' : 'بدون مورد محدد'}
+              </option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+              ))}
+            </Select>
+            {purchaseMethod === 'credit' && !supplierId ? (
+              <span className="hs-field__error" role="alert">
+                التوريد الآجل يحتاج إلى مورد مسجل في دفتر الديون.
+              </span>
+            ) : null}
+          </div>
+
+          <div
+            style={{
+              border: '1px solid var(--hs-border)',
+              borderRadius: 'var(--hs-r-tile)',
+              padding: 'var(--hs-sp-5) var(--hs-sp-6)',
+              color: 'var(--hs-text-muted)',
+              fontSize: 'var(--hs-fs-label)',
+            }}
+          >
+            إجمالي تكلفة التوريد:{' '}
+            <strong className="hs-num" style={{ color: 'var(--hs-ink)' }}>
+              {money(invalidQty ? 0 : parsed * product.cost)}
+            </strong>
+            {purchaseMethod === 'credit' ? ' · سيُضاف تلقائياً إلى ذمة المورد لمدة 30 يوماً.' : ' · سيُخصم من الصندوق.'}
+          </div>
+
+          {error ? <span className="hs-field__error" role="alert">{error}</span> : null}
+
           <div className="hs-row" style={{ gap: 'var(--hs-sp-4)' }}>
-            <Button style={{ flex: 1 }} onClick={onClose}>
-              إلغاء
-            </Button>
+            <Button style={{ flex: 1 }} disabled={saving} onClick={onClose}>إلغاء</Button>
             <Button
               variant="action"
               style={{ flex: 1 }}
-              disabled={invalid}
-              onClick={() => void onSubmit(parsed, supplier.trim())}
+              disabled={invalid || saving}
+              onClick={() => void save()}
             >
-              تسجيل التوريد
+              {saving ? 'جارٍ التسجيل…' : 'تسجيل التوريد'}
             </Button>
           </div>
         </div>
