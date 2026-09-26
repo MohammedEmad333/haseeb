@@ -1,8 +1,8 @@
-name: بناء تطبيق أندرويد · Android APK
+name: بناء تطبيق أندرويد · Android APK / AAB
 
 # Every push builds an installable debug APK. A tag (v1.2.3) additionally
-# builds a signed release APK, when a keystore is configured in secrets, and
-# attaches both to a GitHub release.
+# builds signed release APK + AAB artifacts when a keystore is configured in
+# secrets, and attaches the signed release artifacts to a GitHub release.
 on:
   push:
     branches: ['**']
@@ -87,14 +87,19 @@ jobs:
       # A release build is only produced when a keystore is actually
       # configured; an unsigned release APK cannot be installed, so publishing
       # one would be a trap rather than a convenience.
-      - name: Check for a signing keystore
+      - name: Check signing secrets
         id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret set — building the debug APK only."
+            echo "::notice::Android signing secrets are incomplete — building the debug APK only."
           fi
 
       - name: Decode keystore
@@ -102,7 +107,7 @@ jobs:
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/haseeb.jks"
 
-      - name: Build signed release APK
+      - name: Build signed release APK and AAB
         if: steps.signing.outputs.available == 'true'
         working-directory: android
         env:
@@ -112,7 +117,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
 
       - name: Remove the keystore from the runner
         if: always() && steps.signing.outputs.available == 'true'
@@ -128,25 +133,31 @@ jobs:
             cp android/app/build/outputs/apk/release/app-release.apk \
                "artifacts/haseeb-${{ steps.version.outputs.name }}-release.apk"
           fi
+          if [ -f android/app/build/outputs/bundle/release/app-release.aab ]; then
+            cp android/app/build/outputs/bundle/release/app-release.aab \
+               "artifacts/haseeb-${{ steps.version.outputs.name }}-release.aab"
+          fi
           ls -lh artifacts
 
-      - name: Upload APKs
+      - name: Upload Android artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: haseeb-apk-${{ steps.version.outputs.name }}-${{ github.run_number }}
-          path: artifacts/*.apk
+          name: haseeb-android-${{ steps.version.outputs.name }}-${{ github.run_number }}
+          path: |
+            artifacts/*.apk
+            artifacts/*.aab
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach APKs to the release
+      - name: Attach Android artifacts to the release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" artifacts/*.apk \
+          gh release create "${GITHUB_REF_NAME}" artifacts/* \
             --title "حسيب ${{ steps.version.outputs.name }}" \
             --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" artifacts/*.apk --clobber
+            || gh release upload "${GITHUB_REF_NAME}" artifacts/* --clobber
 
   # The native SQLite driver only exists inside a device WebView, so it cannot
   # be covered by the unit tests or by a headless browser. This job installs
