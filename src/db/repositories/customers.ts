@@ -343,7 +343,7 @@ export class CustomerRepository {
             input.note ?? '',
           ],
         );
-        await postPaymentJournal(tx, { id, method: input.method, amount: input.amount, at });
+        await postPaymentJournal(tx, { id, method: input.method, amount: input.amount, direction, at });
       },
     );
     return id;
@@ -366,7 +366,15 @@ export class CustomerRepository {
 
     const monthStart = new Date(asOf.getFullYear(), asOf.getMonth(), 1).toISOString();
     const collected = await this.db.get(
-      'SELECT COALESCE(SUM(amount_piasters), 0) AS total, COUNT(*) AS n FROM payments WHERE paid_at >= ?',
+      `SELECT COALESCE(SUM(p.amount_piasters), 0) AS total, COUNT(*) AS n
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       WHERE p.paid_at >= ?
+         AND (
+           d.direction = 'receivable'
+           OR (p.debt_id IS NULL AND c.kind <> 'supplier')
+         )`,
       [monthStart],
     );
 
