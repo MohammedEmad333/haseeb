@@ -20,7 +20,8 @@ export interface CartLine {
   name: string;
   qty: number;
   unit: number;
-  cost: number;
+  /** UI snapshot only; checkout reloads the authoritative cost from the product row. */
+  cost?: number;
   discountPercent?: number;
   discount?: number;
 }
@@ -126,9 +127,6 @@ export class SalesRepository {
       if (!Number.isInteger(line.unit) || line.unit < 0) {
         throw new Error(`سعر «${line.name}» غير صحيح.`);
       }
-      if (!Number.isInteger(line.cost) || line.cost < 0) {
-        throw new Error(`تكلفة «${line.name}» غير صحيحة.`);
-      }
       const lineDiscount = line.discount ?? 0;
       if (!Number.isInteger(lineDiscount) || lineDiscount < 0 || lineDiscount > line.qty * line.unit) {
         throw new Error(`خصم «${line.name}» غير صحيح.`);
@@ -154,11 +152,6 @@ export class SalesRepository {
     );
     const invoiceDiscount = input.discount ?? 0;
     const totals = computeTotals({ subtotal, discount: invoiceDiscount, vatRate });
-    const profit = input.lines.reduce(
-      (total, l) => total + lineProfit(l.unit, l.cost, l.qty) - (l.discount ?? 0),
-      0,
-    ) - invoiceDiscount;
-
     const saleId = newId();
     const invoiceId = newId();
     const invoiceNo = await this.nextInvoiceNo();
@@ -174,12 +167,14 @@ export class SalesRepository {
     // the decrement below does not re-read a row it is about to change.
     const onHand = new Map<string, number>();
     const names = new Map<string, string>();
+    const costs = new Map<string, number>();
     for (const line of input.lines) {
       if (!onHand.has(line.productId)) {
         const product = await this.#products.byId(line.productId);
         if (!product) throw new Error(`unknown product ${line.productId}`);
         onHand.set(line.productId, product.qtyOnHand);
         names.set(line.productId, product.name);
+        costs.set(line.productId, product.cost);
       }
       // Draw the running balance down as we go, so two lines of the same
       // product are checked against what is left after the first, not against
@@ -192,6 +187,16 @@ export class SalesRepository {
       }
       onHand.set(line.productId, remaining);
     }
+
+    const lines = input.lines.map((line) => ({
+      ...line,
+      name: names.get(line.productId)!,
+      cost: costs.get(line.productId)!,
+    }));
+    const profit = lines.reduce(
+      (total, line) => total + lineProfit(line.unit, line.cost, line.qty) - (line.discount ?? 0),
+      0,
+    ) - invoiceDiscount;
 
     await this.db.mutate(
       {
@@ -237,13 +242,13 @@ export class SalesRepository {
 
         const stockAfterEachLine = new Map<string, number>();
         for (const [productId, finalQty] of onHand) {
-          const soldQty = input.lines
+          const soldQty = lines
             .filter((line) => line.productId === productId)
             .reduce((sum, line) => sum + line.qty, 0);
           stockAfterEachLine.set(productId, finalQty + soldQty);
         }
 
-        for (const line of input.lines) {
+        for (const line of lines) {
           await tx.execute(
             `INSERT INTO sale_lines (id, sale_id, product_id, name_snapshot, qty,
                unit_piasters, cost_piasters, discount_percent, discount_piasters, total_piasters)
@@ -313,7 +318,7 @@ export class SalesRepository {
           ],
         );
 
-        for (const line of input.lines) {
+        for (const line of lines) {
           await tx.execute(
             `INSERT INTO invoice_lines (id, invoice_id, product_id, name_snapshot, qty,
                unit_piasters, total_piasters)
