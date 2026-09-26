@@ -40,9 +40,23 @@ fi
 
 echo "Waiting for the self-test to report…"
 RESULT=""
+RESTARTS=0
 for _ in $(seq 1 80); do
   if RESULT=$(adb logcat -d | grep -o 'HASEEB_SELFTEST_RESULT .*' | tail -1) && [ -n "$RESULT" ]; then
     break
+  fi
+
+  # Hosted Android images can occasionally kill the app because a system
+  # provider process dies. Relaunch a small number of times; a real self-test
+  # failure still reports FAIL and is never converted into a pass.
+  if ! adb shell pidof com.haseeb.app > /dev/null; then
+    if [ "$RESTARTS" -ge 2 ]; then
+      echo "App stopped repeatedly while waiting for the self-test result."
+      break
+    fi
+    RESTARTS=$((RESTARTS + 1))
+    echo "App stopped before reporting; relaunching (attempt $RESTARTS/2)…"
+    adb shell am start -W -n com.haseeb.app/.MainActivity >/dev/null 2>&1 ||       adb shell monkey -p com.haseeb.app -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
   fi
   sleep 3
 done
