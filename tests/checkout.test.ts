@@ -78,6 +78,34 @@ describe('checkout', () => {
     ]);
   });
 
+  it('uses the database product cost and name instead of stale cart snapshots', async () => {
+    const product = await oilProduct();
+    const fakeCost = 1;
+    const { sale, invoice } = await h.sales.checkout({
+      lines: [{
+        productId: product.id,
+        name: 'اسم قديم في السلة',
+        qty: 2,
+        unit: product.price,
+        cost: fakeCost,
+      }],
+      paymentMethod: 'cash',
+      vatRate: 0,
+    });
+
+    expect(sale.profit).toBe((product.price - product.cost) * 2);
+    expect(invoice.lines[0]?.name).toBe(product.name);
+
+    const stored = await h.db.get(
+      'SELECT name_snapshot, cost_piasters FROM sale_lines WHERE sale_id = ?',
+      [sale.id],
+    );
+    expect(stored).toMatchObject({
+      name_snapshot: product.name,
+      cost_piasters: product.cost,
+    });
+  });
+
   it('subtracts invoice-level discounts from profit without changing COGS', async () => {
     const product = await oilProduct();
     const discount = 500;
