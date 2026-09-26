@@ -150,6 +150,7 @@ export class AccountingRepository {
     );
     if (!target) return 0;
 
+    const targetDebtId = String(target.id);
     const customerId = String(target.customer_id);
     const direction = String(target.direction);
     const debts = await this.db.all(
@@ -159,32 +160,48 @@ export class AccountingRepository {
        ORDER BY opened_at, rowid`,
       [customerId, direction],
     );
-    let credit = Number(
-      (await this.db.value(
-        `SELECT COALESCE(SUM(p.amount_piasters), 0)
-         FROM payments p
-         LEFT JOIN debts d ON d.id = p.debt_id
-         LEFT JOIN customers c ON c.id = p.customer_id
-         WHERE p.customer_id = ?
-           AND (
-             d.direction = ?
-             OR (
-               p.debt_id IS NULL
-               AND (
-                 (? = 'payable' AND c.kind = 'supplier')
-                 OR (? = 'receivable' AND c.kind <> 'supplier')
-               )
+    const payments = await this.db.all(
+      `SELECT p.debt_id, p.amount_piasters
+       FROM payments p
+       LEFT JOIN debts d ON d.id = p.debt_id
+       LEFT JOIN customers c ON c.id = p.customer_id
+       WHERE p.customer_id = ?
+         AND (
+           d.direction = ?
+           OR (
+             p.debt_id IS NULL
+             AND (
+               (? = 'payable' AND c.kind = 'supplier')
+               OR (? = 'receivable' AND c.kind <> 'supplier')
              )
-           )`,
-        [customerId, direction, direction, direction],
-      )) ?? 0,
+           )
+         )
+       ORDER BY p.paid_at, p.rowid`,
+      [customerId, direction, direction, direction],
     );
 
+    const linked = new Map<string, number>();
+    let fifoCredit = 0;
+    for (const payment of payments) {
+      const amount = Number(payment.amount_piasters);
+      if (payment.debt_id == null) {
+        fifoCredit += amount;
+      } else {
+        const debtId = String(payment.debt_id);
+        linked.set(debtId, (linked.get(debtId) ?? 0) + amount);
+      }
+    }
+
     for (const debt of debts) {
+      const debtId = String(debt.id);
       const principal = Number(debt.principal_piasters);
-      const applied = Math.min(credit, principal);
-      credit -= applied;
-      if (String(debt.invoice_id ?? '') === invoiceId) return applied;
+      const direct = linked.get(debtId) ?? 0;
+      const directApplied = Math.min(direct, principal);
+      fifoCredit += Math.max(0, direct - directApplied);
+      const afterDirect = principal - directApplied;
+      const fifoApplied = Math.min(fifoCredit, afterDirect);
+      fifoCredit -= fifoApplied;
+      if (debtId === targetDebtId) return directApplied + fifoApplied;
     }
     return 0;
   }
