@@ -21,6 +21,8 @@ export interface CreateProductInput {
   lowThreshold?: number;
   critThreshold?: number;
   supplier?: string;
+  supplierId?: string | null;
+  dueAt?: string;
 }
 
 const PRODUCT_SELECT = `
@@ -95,8 +97,20 @@ export class ProductRepository {
       throw new Error('الباركود مستخدم لصنف آخر.');
     }
 
+    const supplierText = input.supplier?.trim() ?? '';
+    const supplier = input.supplierId
+      ? await this.db.get('SELECT id, name, kind FROM customers WHERE id = ?', [input.supplierId])
+      : null;
+    if (input.supplierId && (!supplier || String(supplier.kind) !== 'supplier')) {
+      throw new Error('المورد المحدد غير موجود.');
+    }
+    if (supplierText && !input.supplierId) {
+      throw new Error('اختر المورد من قائمة الموردين بدل كتابة الاسم يدوياً.');
+    }
+    const supplierName = supplier ? String(supplier.name) : '';
     const id = newId();
     const at = nowIso();
+    const dueAt = input.dueAt ?? defaultDueDate(at);
     await this.db.mutate(
       {
         entity: 'product',
@@ -137,18 +151,27 @@ export class ProductRepository {
               initialQty,
               initialQty,
               this.db.actor,
-              input.supplier?.trim() ?? '',
+              supplierName,
               'رصيد افتتاحي',
               at,
             ],
           );
+          const amount = initialQty * input.cost;
           await postPurchaseJournal(tx, {
             movementId,
-            amount: initialQty * input.cost,
-            supplier: input.supplier?.trim() ?? '',
+            amount,
+            supplier: supplierName,
             note: 'رصيد افتتاحي',
             at,
           });
+          if (supplier && amount > 0) {
+            await tx.execute(
+              `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
+                 opened_at, due_at, note)
+               VALUES (?, ?, NULL, 'payable', ?, ?, ?, ?)`,
+              [newId(), String(supplier.id), amount, at, dueAt, `توريد افتتاحي — ${name}`],
+            );
+          }
         }
       },
     );
@@ -213,6 +236,8 @@ export class ProductRepository {
     qty: number;
     actor?: string;
     counterparty?: string;
+    supplierId?: string | null;
+    dueAt?: string;
     note?: string;
     occurredAt?: string;
   }): Promise<number> {
@@ -225,6 +250,17 @@ export class ProductRepository {
 
     const product = await this.byId(input.productId);
     if (!product) throw new Error(`unknown product ${input.productId}`);
+    const supplierText = input.counterparty?.trim() ?? '';
+    const supplier = input.kind === 'purchase' && input.supplierId
+      ? await this.db.get('SELECT id, name, kind FROM customers WHERE id = ?', [input.supplierId])
+      : null;
+    if (input.kind === 'purchase' && input.supplierId && (!supplier || String(supplier.kind) !== 'supplier')) {
+      throw new Error('المورد المحدد غير موجود.');
+    }
+    if (input.kind === 'purchase' && supplierText && !input.supplierId) {
+      throw new Error('اختر المورد من قائمة الموردين بدل كتابة الاسم يدوياً.');
+    }
+    const supplierName = supplier ? String(supplier.name) : '';
     const qtyAfter = applyMovement(product.qtyOnHand, input.kind, input.qty);
     const delta = movementDelta(input.kind, input.qty);
     const at = input.occurredAt ?? nowIso();
@@ -252,19 +288,35 @@ export class ProductRepository {
             delta,
             qtyAfter,
             input.actor ?? this.db.actor,
-            input.counterparty ?? '',
+            input.kind === 'purchase' ? supplierName : (input.counterparty ?? ''),
             input.note ?? '',
             at,
           ],
         );
         if (input.kind === 'purchase') {
+          const amount = input.qty * product.cost;
           await postPurchaseJournal(tx, {
             movementId,
-            amount: input.qty * product.cost,
-            supplier: input.counterparty?.trim() ?? '',
+            amount,
+            supplier: supplierName,
             note: input.note?.trim() || 'توريد مخزون',
             at,
           });
+          if (supplier && amount > 0) {
+            await tx.execute(
+              `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
+                 opened_at, due_at, note)
+               VALUES (?, ?, NULL, 'payable', ?, ?, ?, ?)`,
+              [
+                newId(),
+                String(supplier.id),
+                amount,
+                at,
+                input.dueAt ?? defaultDueDate(at),
+                input.note?.trim() || `توريد مخزون — ${product.name}`,
+              ],
+            );
+          }
         }
       },
     );
@@ -293,4 +345,11 @@ export class ProductRepository {
       occurredAt: String(r.occurred_at),
     }));
   }
+}
+
+
+function defaultDueDate(fromIso: string): string {
+  const due = new Date(fromIso);
+  due.setDate(due.getDate() + 30);
+  return due.toISOString();
 }
