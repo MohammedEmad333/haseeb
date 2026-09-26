@@ -90,6 +90,58 @@ describe('debt ledger integrity', () => {
     expect(payable?.outstanding).toBe(30_000);
   });
 
+
+  it('posts supplier settlements as cash outflow and excludes them from collections', async () => {
+    const supplier = await h.customers.create({
+      name: 'مورد اختبار',
+      kind: 'supplier',
+      phone: '',
+      city: '',
+      tier: null,
+      minOrderQty: 0,
+      sinceYear: null,
+    });
+    await h.customers.recordDebt({
+      customerId: supplier.id,
+      amount: 30_000,
+      dueAt: '2026-10-01T00:00:00.000Z',
+      direction: 'payable',
+    });
+
+    await h.accounting.openShift(10_000);
+    const paymentId = await h.customers.recordPayment({
+      customerId: supplier.id,
+      amount: 1_000,
+      method: 'cash',
+      direction: 'payable',
+    });
+
+    const lines = await h.db.all(
+      `SELECT account_id, debit_piasters, credit_piasters
+       FROM journal_lines WHERE journal_id = ? ORDER BY account_id`,
+      [`je-payment-${paymentId}`],
+    );
+    expect(lines).toEqual([
+      { account_id: 'acc-ap', debit_piasters: 1_000, credit_piasters: 0 },
+      { account_id: 'acc-cash', debit_piasters: 0, credit_piasters: 1_000 },
+    ]);
+
+    expect(
+      await h.analytics.collectedBetween(
+        '2000-01-01T00:00:00.000Z',
+        '2100-01-01T00:00:00.000Z',
+      ),
+    ).toBe(0);
+    expect((await h.customers.debtTotals()).collectedThisMonth).toBe(0);
+
+    const closed = await h.accounting.closeShift(9_000);
+    expect(closed).toMatchObject({
+      expectedCash: 9_000,
+      actualCash: 9_000,
+      difference: 0,
+    });
+  });
+
   it('rejects a debt id that belongs to another customer', async () => {
     const first = await customer('الأول');
     const second = await customer('الثاني');
