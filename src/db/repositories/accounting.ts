@@ -264,7 +264,10 @@ export class AccountingRepository {
       [from],
     )) ?? 0);
     const refunds = Number((await this.db.value("SELECT COALESCE(SUM(total_piasters),0) FROM credit_notes WHERE payment_method='cash' AND issued_at>=?", [from])) ?? 0);
-    const expenses = Number((await this.db.value('SELECT COALESCE(SUM(amount_piasters),0) FROM expenses WHERE recorded_at>=?', [from])) ?? 0);
+    const expenses = Number((await this.db.value(
+      "SELECT COALESCE(SUM(amount_piasters),0) FROM expenses WHERE payment_method='cash' AND recorded_at>=?",
+      [from],
+    )) ?? 0);
     return sales + received - paidToSuppliers - refunds - expenses;
   }
 
@@ -326,7 +329,9 @@ export class AccountingRepository {
           const id = String(expense.id); const journal = `je-expense-${id}`; const amount = Number(expense.amount_piasters);
           await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'expense', id, `مصروف: ${expense.label}`, String(expense.recorded_at)]);
           await addLine(tx, journal, 'acc-expense', amount, 0);
-          await addLine(tx, journal, 'acc-cash', 0, amount);
+          const method = String(expense.payment_method ?? 'cash');
+          const account = method === 'card' ? 'acc-card' : method === 'wallet' ? 'acc-wallet' : 'acc-cash';
+          await addLine(tx, journal, account, 0, amount);
         }
         for (const payment of payments) {
           const id = String(payment.id); const journal = `je-payment-${id}`; const amount = Number(payment.amount_piasters);

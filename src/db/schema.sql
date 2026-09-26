@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   label           TEXT NOT NULL,
   amount_piasters INTEGER NOT NULL,
   color           TEXT NOT NULL DEFAULT '#0F172A',
+  payment_method  TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash','card','wallet')),
   period          TEXT NOT NULL,
   recorded_at     TEXT NOT NULL
 );

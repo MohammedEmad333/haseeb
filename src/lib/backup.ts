@@ -16,7 +16,7 @@ import { deriveKeyFromPassphrase, generateSalt, open as openSealed, seal } from 
 import { NOUNS, counted } from '@/lib/format';
 
 /** Bumped when the table set changes in a way an older app cannot read. */
-export const BACKUP_FORMAT = 2;
+export const BACKUP_FORMAT = 3;
 
 /** Short enough to remember, long enough that guessing it is not the attack. */
 export const MIN_PASSPHRASE_LENGTH = 8;

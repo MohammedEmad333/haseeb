@@ -3,6 +3,7 @@ import type {
   AuditEntry,
   BusinessProfile,
   Expense,
+  ExpensePaymentMethod,
   Order,
   OrderDirection,
   OrderStatus,
@@ -91,9 +92,16 @@ export class OperationsRepository {
     return (await this.expenses(period)).reduce((t, e) => t + e.amount, 0);
   }
 
-  async addExpense(input: { label: string; amount: number; period?: string; color?: string }): Promise<Expense> {
+  async addExpense(input: {
+    label: string;
+    amount: number;
+    paymentMethod?: ExpensePaymentMethod;
+    period?: string;
+    color?: string;
+  }): Promise<Expense> {
     const label = input.label.trim();
     const period = input.period ?? nowIso().slice(0, 7);
+    const paymentMethod = input.paymentMethod ?? 'cash';
     if (!label) throw new Error('اسم المصروف مطلوب.');
     if (!Number.isInteger(input.amount) || input.amount <= 0) throw new Error('قيمة المصروف غير صحيحة.');
     if (!/^\d{4}-\d{2}$/.test(period)) throw new Error('شهر المصروف غير صحيح.');
@@ -106,15 +114,15 @@ export class OperationsRepository {
         entityId: id,
         action: 'create',
         description: `تسجيل مصروف «${label}»`,
-        payload: { amount: input.amount, period },
+        payload: { amount: input.amount, paymentMethod, period },
       },
       async (tx) => {
         await tx.execute(
-          `INSERT INTO expenses (id, label, amount_piasters, color, period, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [id, label, input.amount, input.color ?? '#0F172A', period, at],
+          `INSERT INTO expenses (id, label, amount_piasters, color, payment_method, period, recorded_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [id, label, input.amount, input.color ?? '#0F172A', paymentMethod, period, at],
         );
-        await postExpenseJournal(tx, { id, label, amount: input.amount, at });
+        await postExpenseJournal(tx, { id, label, amount: input.amount, method: paymentMethod, at });
       },
     );
     const row = await this.db.get('SELECT * FROM expenses WHERE id = ?', [id]);
@@ -406,6 +414,7 @@ function toExpense(row: Row): Expense {
     label: String(row.label),
     amount: Number(row.amount_piasters),
     color: String(row.color),
+    paymentMethod: String(row.payment_method ?? 'cash') as ExpensePaymentMethod,
     period: String(row.period),
     recordedAt: String(row.recorded_at),
   };

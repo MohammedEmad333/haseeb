@@ -70,6 +70,18 @@ describe('double-entry accounting', () => {
     expect(returns.map((movement) => movement.qtyAfter).sort((a, b) => a - b)).toEqual([7, 10]);
   });
 
+  it('keeps card and wallet expenses out of cash drawer reconciliation', async () => {
+    await h.accounting.openShift(10_000);
+    await h.ops.addExpense({ label: 'اشتراك بطاقة', amount: 500, paymentMethod: 'card' });
+    const closed = await h.accounting.closeShift(10_000);
+
+    expect(closed).toMatchObject({ expectedCash: 10_000, actualCash: 10_000, difference: 0 });
+
+    const trial = await h.accounting.trialBalance();
+    expect(trial.find((row) => row.id === 'acc-expense')?.balance).toBe(500);
+    expect(trial.find((row) => row.id === 'acc-card')?.balance).toBe(-500);
+  });
+
   it('reconciles the cash drawer against cash sales and expenses', async () => {
     await h.accounting.openShift(10_000);
     await sale();

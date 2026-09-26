@@ -8,6 +8,7 @@
  */
 
 import schemaSql from '../schema.sql?raw';
+import { runSchemaMigrations } from '../migrations';
 import { loadSqlJs, type SqlJsDatabase } from '../engine';
 import { createBlobStore, type BlobStore } from '../storage';
 import {
@@ -66,6 +67,7 @@ export class SqlJsDriver implements SqlDriver {
     sqlite.run(schemaSql);
 
     const driver = new SqlJsDriver(sqlite, key, store, ephemeral);
+    await driver.transaction((tx) => runSchemaMigrations(tx));
     if (!sealed) await driver.flush();
     return driver;
   }
@@ -147,6 +149,12 @@ export class SqlJsDriver implements SqlDriver {
   }
 
   async close(): Promise<void> {
+    // A transaction schedules persistence after COMMIT. Closing the SQLite
+    // handle before that queued save runs can make an otherwise successful
+    // shutdown reject later from a timer. Drain writes and persist first.
+    await this.#lock;
+    await this.flush();
+    await this.#pendingSave;
     this.#sqlite.close();
   }
 

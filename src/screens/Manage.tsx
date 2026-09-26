@@ -7,13 +7,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
-import { Button, Card, CardBody, CardHead, EmptyState, Input, Meter } from '@/ui/primitives';
+import { Button, Card, CardBody, CardHead, EmptyState, Input, Meter, Select } from '@/ui/primitives';
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
 import { Can } from '@/shell/Guard';
 import { StaffManager } from './manage/StaffManager';
 import { DataTransfer } from './manage/DataTransfer';
 import { NOUNS, counted, dateAndTime, money, num, percent } from '@/lib/format';
-import type { JournalEntry, TrialBalanceRow } from '@/db/types';
+import type { ExpensePaymentMethod, JournalEntry, TrialBalanceRow } from '@/db/types';
 
 export function Manage() {
   const { analytics, ops, accounting, profile, reset, storageLocation, syncPending, numbering, setNumbering, engine, db } =
@@ -353,10 +353,11 @@ function ExpenseDialog({
 }: {
   unit: string;
   onClose: () => void;
-  onSubmit: (input: { label: string; amount: number; period: string }) => void | Promise<void>;
+  onSubmit: (input: { label: string; amount: number; paymentMethod: ExpensePaymentMethod; period: string }) => void | Promise<void>;
 }) {
   const [label, setLabel] = useState('');
   const [amount, setAmount] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>('cash');
   const [period, setPeriod] = useState(new Date().toISOString().slice(0, 7));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -369,7 +370,7 @@ function ExpenseDialog({
     setSaving(true);
     setError(null);
     try {
-      await onSubmit({ label: label.trim(), amount: piasters, period });
+      await onSubmit({ label: label.trim(), amount: piasters, paymentMethod, period });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذّر تسجيل المصروف.');
       setSaving(false);
@@ -389,6 +390,18 @@ function ExpenseDialog({
           <div>
             <label className="hs-field__label" htmlFor="expense-amount">القيمة ({unit})</label>
             <Input id="expense-amount" className="hs-input hs-num" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="hs-field__label" htmlFor="expense-payment">طريقة الدفع</label>
+            <Select
+              id="expense-payment"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as ExpensePaymentMethod)}
+            >
+              <option value="cash">نقدي</option>
+              <option value="card">بطاقة</option>
+              <option value="wallet">محفظة</option>
+            </Select>
           </div>
           <div>
             <label className="hs-field__label" htmlFor="expense-period">الشهر</label>

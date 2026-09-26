@@ -5,6 +5,7 @@ import type { TierName } from '@/domain/wholesale';
 
 export type PaymentMethod = 'cash' | 'wallet' | 'card' | 'credit';
 export type SettlementMethod = 'cash' | 'wallet' | 'card' | 'transfer';
+export type ExpensePaymentMethod = 'cash' | 'wallet' | 'card';
 export type SalesChannel = 'retail' | 'wholesale' | 'preorder' | 'other';
 export type InvoiceStatus = 'paid' | 'pending' | 'overdue';
 export type CustomerKind = 'retail' | 'wholesale' | 'supplier';
@@ -176,6 +177,7 @@ export interface Expense {
   label: string;
   amount: number;
   color: string;
+  paymentMethod: ExpensePaymentMethod;
   period: string;
   recordedAt: string;
 }
