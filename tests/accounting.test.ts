@@ -47,6 +47,29 @@ describe('double-entry accounting', () => {
     expect(journal?.debit).toBe(journal?.credit);
   });
 
+  it('restores all quantities when a returned invoice contains repeated product lines', async () => {
+    const product = await h.products.create({
+      name: 'صنف مرتجع متكرر', sku: 'RET-DUP', cost: 500, price: 1_000, initialQty: 10,
+    });
+    const result = await h.sales.checkout({
+      lines: [
+        { productId: product.id, name: product.name, qty: 2, unit: product.price, cost: product.cost },
+        { productId: product.id, name: product.name, qty: 3, unit: product.price, cost: product.cost },
+      ],
+      paymentMethod: 'cash',
+      vatRate: 0,
+    });
+
+    expect((await h.products.byId(product.id))?.qtyOnHand).toBe(5);
+    await h.accounting.returnInvoice(result.invoice.id, 'إرجاع كامل');
+    expect((await h.products.byId(product.id))?.qtyOnHand).toBe(10);
+
+    const returns = (await h.products.movements(20))
+      .filter((movement) => movement.productId === product.id && movement.kind === 'return')
+      .slice(0, 2);
+    expect(returns.map((movement) => movement.qtyAfter).sort((a, b) => a - b)).toEqual([7, 10]);
+  });
+
   it('reconciles the cash drawer against cash sales and expenses', async () => {
     await h.accounting.openShift(10_000);
     await sale();
