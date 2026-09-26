@@ -82,6 +82,10 @@ describe('checkout', () => {
     const product = await oilProduct();
     const discount = 500;
 
+    const trialBefore = await h.accounting.trialBalance();
+    const cogsBefore = trialBefore.find((row) => row.id === 'acc-cogs')?.debit ?? 0;
+    const inventoryBefore = trialBefore.find((row) => row.id === 'acc-inventory')?.credit ?? 0;
+
     const { sale } = await h.sales.checkout({
       lines: [
         { productId: product.id, name: product.name, qty: 2, unit: product.price, cost: product.cost },
@@ -97,8 +101,8 @@ describe('checkout', () => {
     const trial = await h.accounting.trialBalance();
     const cogs = trial.find((row) => row.id === 'acc-cogs');
     const inventory = trial.find((row) => row.id === 'acc-inventory');
-    expect(cogs?.debit).toBe(expectedCogs);
-    expect(inventory?.credit).toBe(expectedCogs);
+    expect((cogs?.debit ?? 0) - cogsBefore).toBe(expectedCogs);
+    expect((inventory?.credit ?? 0) - inventoryBefore).toBe(expectedCogs);
   });
 
   it('opens a debt for a credit sale and leaves the invoice pending', async () => {
