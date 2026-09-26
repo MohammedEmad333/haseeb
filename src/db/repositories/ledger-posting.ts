@@ -1,6 +1,6 @@
 import { newId } from '../database';
 import type { SqlTx } from '../drivers';
-import type { PaymentMethod, SettlementMethod } from '../types';
+import type { ExpensePaymentMethod, PaymentMethod, SettlementMethod } from '../types';
 
 async function line(tx: SqlTx, journalId: string, accountId: string, debit: number, credit: number): Promise<void> {
   if (debit === 0 && credit === 0) return;
@@ -20,11 +20,17 @@ export async function postSaleJournal(tx: SqlTx, input: {
   await line(tx, journal, 'acc-inventory', 0, cost);
 }
 
-export async function postExpenseJournal(tx: SqlTx, input: { id: string; label: string; amount: number; at: string }): Promise<void> {
+export async function postExpenseJournal(tx: SqlTx, input: {
+  id: string;
+  label: string;
+  amount: number;
+  method: ExpensePaymentMethod;
+  at: string;
+}): Promise<void> {
   const journal = `je-expense-${input.id}`;
   await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'expense', input.id, `مصروف: ${input.label}`, input.at]);
   await line(tx, journal, 'acc-expense', input.amount, 0);
-  await line(tx, journal, 'acc-cash', 0, input.amount);
+  await line(tx, journal, input.method === 'cash' ? 'acc-cash' : input.method === 'card' ? 'acc-card' : 'acc-wallet', 0, input.amount);
 }
 
 export async function postPaymentJournal(tx: SqlTx, input: {
