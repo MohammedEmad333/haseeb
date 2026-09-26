@@ -68,13 +68,7 @@ export class AccountingRepository {
     if (!invoice) throw new Error('الفاتورة غير موجودة.');
 
     if (String(invoice.payment_method) === 'credit') {
-      const paid = Number(
-        (await this.db.value(
-          `SELECT COALESCE(SUM(p.amount_piasters), 0) FROM payments p
-           JOIN debts d ON d.id = p.debt_id WHERE d.invoice_id = ?`,
-          [invoiceId],
-        )) ?? 0,
-      );
+      const paid = await this.#allocatedPaymentForInvoice(invoiceId);
       if (paid > 0) throw new Error('لا يمكن إرجاع فاتورة آجلة بعد تحصيل دفعة منها قبل تسوية الدفعة.');
     }
 
@@ -128,6 +122,7 @@ export class AccountingRepository {
         }
         if (method === 'credit') {
           await tx.execute('UPDATE debts SET principal_piasters = 0 WHERE invoice_id = ?', [invoiceId]);
+          await tx.execute("UPDATE invoices SET status = 'paid' WHERE id = ?", [invoiceId]);
         }
 
         const journalId = `je-credit-${id}`;
@@ -145,6 +140,53 @@ export class AccountingRepository {
       },
     );
     return (await this.creditNotes()).find((note) => note.id === id)!;
+  }
+
+  async #allocatedPaymentForInvoice(invoiceId: string): Promise<number> {
+    const target = await this.db.get(
+      `SELECT id, customer_id, direction
+       FROM debts WHERE invoice_id = ? LIMIT 1`,
+      [invoiceId],
+    );
+    if (!target) return 0;
+
+    const customerId = String(target.customer_id);
+    const direction = String(target.direction);
+    const debts = await this.db.all(
+      `SELECT id, invoice_id, principal_piasters
+       FROM debts
+       WHERE customer_id = ? AND direction = ?
+       ORDER BY opened_at, rowid`,
+      [customerId, direction],
+    );
+    let credit = Number(
+      (await this.db.value(
+        `SELECT COALESCE(SUM(p.amount_piasters), 0)
+         FROM payments p
+         LEFT JOIN debts d ON d.id = p.debt_id
+         LEFT JOIN customers c ON c.id = p.customer_id
+         WHERE p.customer_id = ?
+           AND (
+             d.direction = ?
+             OR (
+               p.debt_id IS NULL
+               AND (
+                 (? = 'payable' AND c.kind = 'supplier')
+                 OR (? = 'receivable' AND c.kind <> 'supplier')
+               )
+             )
+           )`,
+        [customerId, direction, direction, direction],
+      )) ?? 0,
+    );
+
+    for (const debt of debts) {
+      const principal = Number(debt.principal_piasters);
+      const applied = Math.min(credit, principal);
+      credit -= applied;
+      if (String(debt.invoice_id ?? '') === invoiceId) return applied;
+    }
+    return 0;
   }
 
   async currentShift(): Promise<CashShift | null> {

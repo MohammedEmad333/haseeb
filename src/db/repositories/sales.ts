@@ -65,6 +65,14 @@ function toSale(row: Row): Sale {
 }
 
 function toInvoice(row: Row): Invoice {
+  const dueAt = row.due_at === null ? null : String(row.due_at);
+  const storedStatus = String(row.status) as InvoiceStatus;
+  const dueTime = dueAt ? new Date(dueAt).getTime() : Number.NaN;
+  const status: InvoiceStatus =
+    storedStatus === 'pending' && Number.isFinite(dueTime) && dueTime < Date.now()
+      ? 'overdue'
+      : storedStatus;
+
   return {
     id: String(row.id),
     invoiceNo: String(row.invoice_no),
@@ -72,9 +80,9 @@ function toInvoice(row: Row): Invoice {
     customerId: row.customer_id === null ? null : String(row.customer_id),
     customerName: row.customer_name == null ? 'عميل نقدي' : String(row.customer_name),
     kind: String(row.kind) as 'retail' | 'wholesale',
-    status: String(row.status) as InvoiceStatus,
+    status,
     issuedAt: String(row.issued_at),
-    dueAt: row.due_at === null ? null : String(row.due_at),
+    dueAt,
     subtotal: Number(row.subtotal_piasters),
     discount: Number(row.discount_piasters),
     vat: Number(row.vat_piasters),

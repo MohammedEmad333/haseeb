@@ -301,22 +301,16 @@ export class CustomerRepository {
       }
     }
 
-    const summary = (await this.debtors(direction)).find((row) => row.id === input.customerId);
-    const outstanding = summary?.outstanding ?? 0;
-    if (input.amount > outstanding) {
+    const allocation = await this.#allocationAfterPayment(
+      input.customerId,
+      direction,
+      input.amount,
+    );
+    if (input.amount > allocation.outstandingBefore) {
       throw new Error('قيمة السداد أكبر من الرصيد المستحق.');
     }
 
-    if (!targetDebtId) {
-      targetDebtId =
-        (await this.db.value<string>(
-          `SELECT id FROM debts
-           WHERE customer_id = ? AND direction = ?
-           ORDER BY opened_at, rowid
-           LIMIT 1`,
-          [input.customerId, direction],
-        )) ?? null;
-    }
+    if (!targetDebtId) targetDebtId = allocation.firstOpenDebtId;
     if (!targetDebtId) throw new Error('لا يوجد دين مفتوح لتسجيل السداد عليه.');
 
     const id = newId();
@@ -344,9 +338,88 @@ export class CustomerRepository {
           ],
         );
         await postPaymentJournal(tx, { id, method: input.method, amount: input.amount, direction, at });
+        if (direction === 'receivable') {
+          for (const invoice of allocation.invoiceStatuses) {
+            await tx.execute('UPDATE invoices SET status = ? WHERE id = ?', [
+              invoice.status,
+              invoice.invoiceId,
+            ]);
+          }
+        }
       },
     );
     return id;
+  }
+
+  async #allocationAfterPayment(
+    customerId: string,
+    direction: 'receivable' | 'payable',
+    extraPayment: number,
+  ): Promise<{
+    outstandingBefore: number;
+    firstOpenDebtId: string | null;
+    invoiceStatuses: Array<{ invoiceId: string; status: 'paid' | 'pending' | 'overdue' }>;
+  }> {
+    const debts = await this.db.all(
+      `SELECT id, invoice_id, principal_piasters, due_at
+       FROM debts
+       WHERE customer_id = ? AND direction = ?
+       ORDER BY opened_at, rowid`,
+      [customerId, direction],
+    );
+    const paidBefore = Number(
+      (await this.db.value(
+        `SELECT COALESCE(SUM(p.amount_piasters), 0)
+         FROM payments p
+         LEFT JOIN debts d ON d.id = p.debt_id
+         LEFT JOIN customers c ON c.id = p.customer_id
+         WHERE p.customer_id = ?
+           AND (
+             d.direction = ?
+             OR (
+               p.debt_id IS NULL
+               AND (
+                 (? = 'payable' AND c.kind = 'supplier')
+                 OR (? = 'receivable' AND c.kind <> 'supplier')
+               )
+             )
+           )`,
+        [customerId, direction, direction, direction],
+      )) ?? 0,
+    );
+
+    let currentCredit = paidBefore;
+    let firstOpenDebtId: string | null = null;
+    let outstandingBefore = 0;
+    for (const debt of debts) {
+      const principal = Number(debt.principal_piasters);
+      const applied = Math.min(currentCredit, principal);
+      currentCredit -= applied;
+      const remaining = principal - applied;
+      if (remaining > 0) {
+        outstandingBefore += remaining;
+        if (!firstOpenDebtId) firstOpenDebtId = String(debt.id);
+      }
+    }
+
+    let creditAfter = paidBefore + extraPayment;
+    const now = Date.now();
+    const invoiceStatuses: Array<{ invoiceId: string; status: 'paid' | 'pending' | 'overdue' }> = [];
+    for (const debt of debts) {
+      const principal = Number(debt.principal_piasters);
+      const applied = Math.min(creditAfter, principal);
+      creditAfter -= applied;
+      const remaining = principal - applied;
+      if (debt.invoice_id != null) {
+        const due = new Date(String(debt.due_at)).getTime();
+        invoiceStatuses.push({
+          invoiceId: String(debt.invoice_id),
+          status: remaining === 0 ? 'paid' : Number.isFinite(due) && due < now ? 'overdue' : 'pending',
+        });
+      }
+    }
+
+    return { outstandingBefore, firstOpenDebtId, invoiceStatuses };
   }
 
   /** Totals for the four cards at the top of دفتر الديون. */
