@@ -142,6 +142,40 @@ describe('debt ledger integrity', () => {
     });
   });
 
+  it('keeps supplier payments out of historical receivable balances', async () => {
+    const client = await customer('عميل تاريخي');
+    const supplier = await h.customers.create({
+      name: 'مورد تاريخي',
+      kind: 'supplier',
+      phone: '',
+      city: '',
+      tier: null,
+      minOrderQty: 0,
+      sinceYear: null,
+    });
+
+    await h.customers.recordDebt({
+      customerId: client.id,
+      amount: 20_000,
+      dueAt: '2026-10-01T00:00:00.000Z',
+      direction: 'receivable',
+    });
+    await h.customers.recordDebt({
+      customerId: supplier.id,
+      amount: 30_000,
+      dueAt: '2026-10-01T00:00:00.000Z',
+      direction: 'payable',
+    });
+    await h.customers.recordPayment({
+      customerId: supplier.id,
+      amount: 5_000,
+      method: 'cash',
+      direction: 'payable',
+    });
+
+    expect(await h.analytics.outstandingAsOf(new Date('2100-01-01T00:00:00.000Z'))).toBe(20_000);
+  });
+
   it('rejects a debt id that belongs to another customer', async () => {
     const first = await customer('الأول');
     const second = await customer('الثاني');
