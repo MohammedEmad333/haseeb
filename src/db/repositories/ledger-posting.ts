@@ -45,12 +45,32 @@ export async function postPaymentJournal(tx: SqlTx, input: {
   await line(tx, journal, 'acc-ar', 0, input.amount);
 }
 
-export async function postPurchaseJournal(tx: SqlTx, input: { movementId: string; amount: number; supplier: string; note: string; at: string }): Promise<void> {
+export type PurchaseFunding = PaymentMethod | 'equity';
+
+export async function postPurchaseJournal(tx: SqlTx, input: {
+  movementId: string;
+  amount: number;
+  funding: PurchaseFunding;
+  note: string;
+  at: string;
+}): Promise<void> {
   if (input.amount <= 0) return;
   const journal = `je-stock-${input.movementId}`;
-  await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'stock_purchase', input.movementId, `توريد مخزون: ${input.note}`, input.at]);
+  await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [
+    journal,
+    'stock_purchase',
+    input.movementId,
+    `توريد مخزون: ${input.note}`,
+    input.at,
+  ]);
   await line(tx, journal, 'acc-inventory', input.amount, 0);
-  await line(tx, journal, input.supplier ? 'acc-ap' : 'acc-equity', 0, input.amount);
+  const creditAccount =
+    input.funding === 'credit'
+      ? 'acc-ap'
+      : input.funding === 'equity'
+        ? 'acc-equity'
+        : paymentAccount(input.funding);
+  await line(tx, journal, creditAccount, 0, input.amount);
 }
 
 export function paymentAccount(method: PaymentMethod): string {
