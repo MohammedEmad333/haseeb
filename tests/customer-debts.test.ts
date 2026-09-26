@@ -176,6 +176,50 @@ describe('debt ledger integrity', () => {
     expect(await h.analytics.outstandingAsOf(new Date('2100-01-01T00:00:00.000Z'))).toBe(20_000);
   });
 
+
+  it('respects payments targeted at a specific debt instead of reallocating them FIFO', async () => {
+    const c = await customer('عميل بديون متعددة');
+    const firstDebt = await h.customers.recordDebt({
+      customerId: c.id,
+      amount: 10_000,
+      dueAt: '2026-01-01T00:00:00.000Z',
+      direction: 'receivable',
+      note: 'الدين الأقدم',
+    });
+    const secondDebt = await h.customers.recordDebt({
+      customerId: c.id,
+      amount: 20_000,
+      dueAt: '2026-12-01T00:00:00.000Z',
+      direction: 'receivable',
+      note: 'الدين الأحدث',
+    });
+
+    await h.customers.recordPayment({
+      customerId: c.id,
+      amount: 5_000,
+      method: 'cash',
+      debtId: secondDebt,
+      direction: 'receivable',
+    });
+
+    const summary = (await h.customers.debtors('receivable', new Date('2026-09-26T00:00:00.000Z')))
+      .find((row) => row.id === c.id);
+    expect(summary?.outstanding).toBe(25_000);
+    expect(summary?.dueAt).toBe('2026-01-01T00:00:00.000Z');
+
+    await expect(
+      h.customers.recordPayment({
+        customerId: c.id,
+        amount: 16_000,
+        method: 'cash',
+        debtId: secondDebt,
+        direction: 'receivable',
+      }),
+    ).rejects.toThrow('أكبر من رصيد الدين المحدد');
+
+    expect(firstDebt).not.toBe(secondDebt);
+  });
+
   it('rejects a debt id that belongs to another customer', async () => {
     const first = await customer('الأول');
     const second = await customer('الثاني');
