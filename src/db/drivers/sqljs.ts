@@ -149,6 +149,12 @@ export class SqlJsDriver implements SqlDriver {
   }
 
   async close(): Promise<void> {
+    // A transaction schedules persistence after COMMIT. Closing the SQLite
+    // handle before that queued save runs can make an otherwise successful
+    // shutdown reject later from a timer. Drain writes and persist first.
+    await this.#lock;
+    await this.flush();
+    await this.#pendingSave;
     this.#sqlite.close();
   }
 
