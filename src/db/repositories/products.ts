@@ -145,7 +145,7 @@ export class ProductRepository {
           await postPurchaseJournal(tx, {
             movementId,
             amount: initialQty * input.cost,
-            supplier: input.supplier?.trim() ?? '',
+            method: 'opening',
             note: 'رصيد افتتاحي',
             at,
           });
@@ -213,6 +213,8 @@ export class ProductRepository {
     qty: number;
     actor?: string;
     counterparty?: string;
+    counterpartyId?: string | null;
+    purchaseMethod?: 'cash' | 'credit';
     note?: string;
     occurredAt?: string;
   }): Promise<number> {
@@ -228,6 +230,24 @@ export class ProductRepository {
     const qtyAfter = applyMovement(product.qtyOnHand, input.kind, input.qty);
     const delta = movementDelta(input.kind, input.qty);
     const at = input.occurredAt ?? nowIso();
+
+    let supplierId: string | null = null;
+    let counterparty = input.counterparty?.trim() ?? '';
+    let purchaseMethod: 'cash' | 'credit' = input.purchaseMethod ?? 'cash';
+    if (input.kind === 'purchase' && input.counterpartyId) {
+      const supplier = await this.db.get(
+        "SELECT id, name, kind FROM customers WHERE id = ?",
+        [input.counterpartyId],
+      );
+      if (!supplier || String(supplier.kind) !== 'supplier') {
+        throw new Error('المورد المحدد غير موجود.');
+      }
+      supplierId = String(supplier.id);
+      counterparty = String(supplier.name);
+    }
+    if (input.kind === 'purchase' && purchaseMethod === 'credit' && !supplierId) {
+      throw new Error('التوريد الآجل يحتاج إلى اختيار مورد مسجل.');
+    }
 
     await this.db.mutate(
       {
@@ -252,19 +272,37 @@ export class ProductRepository {
             delta,
             qtyAfter,
             input.actor ?? this.db.actor,
-            input.counterparty ?? '',
+            counterparty,
             input.note ?? '',
             at,
           ],
         );
         if (input.kind === 'purchase') {
+          const amount = input.qty * product.cost;
           await postPurchaseJournal(tx, {
             movementId,
-            amount: input.qty * product.cost,
-            supplier: input.counterparty?.trim() ?? '',
+            amount,
+            method: purchaseMethod,
             note: input.note?.trim() || 'توريد مخزون',
             at,
           });
+          if (purchaseMethod === 'credit' && supplierId) {
+            const due = new Date(at);
+            due.setDate(due.getDate() + 30);
+            await tx.execute(
+              `INSERT INTO debts
+                 (id, customer_id, invoice_id, direction, principal_piasters, opened_at, due_at, note)
+               VALUES (?, ?, NULL, 'payable', ?, ?, ?, ?)`,
+              [
+                newId(),
+                supplierId,
+                amount,
+                at,
+                due.toISOString(),
+                `توريد مخزون — ${product.name}`,
+              ],
+            );
+          }
         }
       },
     );
