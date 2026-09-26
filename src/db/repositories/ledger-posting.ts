@@ -45,12 +45,20 @@ export async function postPaymentJournal(tx: SqlTx, input: {
   await line(tx, journal, 'acc-ar', 0, input.amount);
 }
 
-export async function postPurchaseJournal(tx: SqlTx, input: { movementId: string; amount: number; supplier: string; note: string; at: string }): Promise<void> {
+export async function postPurchaseJournal(tx: SqlTx, input: {
+  movementId: string;
+  amount: number;
+  method: 'cash' | 'credit' | 'opening';
+  note: string;
+  at: string;
+}): Promise<void> {
   if (input.amount <= 0) return;
   const journal = `je-stock-${input.movementId}`;
   await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'stock_purchase', input.movementId, `توريد مخزون: ${input.note}`, input.at]);
   await line(tx, journal, 'acc-inventory', input.amount, 0);
-  await line(tx, journal, input.supplier ? 'acc-ap' : 'acc-equity', 0, input.amount);
+  const creditAccount =
+    input.method === 'cash' ? 'acc-cash' : input.method === 'credit' ? 'acc-ap' : 'acc-equity';
+  await line(tx, journal, creditAccount, 0, input.amount);
 }
 
 export function paymentAccount(method: PaymentMethod): string {
