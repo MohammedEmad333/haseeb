@@ -8,6 +8,7 @@
  */
 
 import schemaSql from '../schema.sql?raw';
+import { runSchemaMigrations } from '../migrations';
 import { loadSqlJs, type SqlJsDatabase } from '../engine';
 import { createBlobStore, type BlobStore } from '../storage';
 import {
@@ -66,6 +67,7 @@ export class SqlJsDriver implements SqlDriver {
     sqlite.run(schemaSql);
 
     const driver = new SqlJsDriver(sqlite, key, store, ephemeral);
+    await driver.transaction((tx) => runSchemaMigrations(tx));
     if (!sealed) await driver.flush();
     return driver;
   }
