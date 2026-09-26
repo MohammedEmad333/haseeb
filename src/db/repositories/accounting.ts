@@ -108,18 +108,22 @@ export class AccountingRepository {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [id, noteNo, invoiceId, method, subtotal, vat, total, profit, cleanReason, at],
         );
+        const restoredStock = new Map<string, number>();
         for (const line of lines) {
-          const qtyAfter = Number(line.qty_on_hand) + Number(line.qty);
+          const productId = String(line.product_id);
+          const qtyBefore = restoredStock.get(productId) ?? Number(line.qty_on_hand);
+          const qtyAfter = qtyBefore + Number(line.qty);
+          restoredStock.set(productId, qtyAfter);
           await tx.execute(
             `INSERT INTO credit_note_lines VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [newId(), id, String(line.product_id), String(line.name_snapshot), Number(line.qty), Number(line.unit_piasters), Number(line.total_piasters)],
+            [newId(), id, productId, String(line.name_snapshot), Number(line.qty), Number(line.unit_piasters), Number(line.total_piasters)],
           );
-          await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, String(line.product_id)]);
+          await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [qtyAfter, productId]);
           await tx.execute(
             `INSERT INTO stock_movements
                (id, product_id, kind, qty_delta, qty_after, actor, counterparty, note, occurred_at)
              VALUES (?, ?, 'return', ?, ?, ?, '', ?, ?)`,
-            [newId(), String(line.product_id), Number(line.qty), qtyAfter, this.db.actor, noteNo, at],
+            [newId(), productId, Number(line.qty), qtyAfter, this.db.actor, noteNo, at],
           );
         }
         if (method === 'credit') {
@@ -206,7 +210,9 @@ export class AccountingRepository {
   }
 
   async #nextCreditNoteNo(): Promise<string> {
-    const last = await this.db.value<string>("SELECT note_no FROM credit_notes WHERE note_no LIKE 'CN-%' ORDER BY note_no DESC LIMIT 1");
+    const last = await this.db.value<string>(
+      "SELECT note_no FROM credit_notes WHERE note_no LIKE 'CN-%' ORDER BY CAST(SUBSTR(note_no, 4) AS INTEGER) DESC LIMIT 1",
+    );
     return `CN-${String(last ? Number(last.slice(3)) + 1 : 1).padStart(4, '0')}`;
   }
 
