@@ -205,7 +205,7 @@ export function Debts() {
           debtor={paying}
           onClose={() => setPaying(null)}
           onSubmit={async (amount, method) => {
-            await customers!.recordPayment({ customerId: paying.id, amount, method });
+            await customers!.recordPayment({ customerId: paying.id, amount, method, direction });
             await db?.flush();
             setPaying(null);
           }}
