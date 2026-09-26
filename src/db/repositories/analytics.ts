@@ -190,6 +190,10 @@ export class AnalyticsRepository {
       weekStart.toISOString(),
       weekEnd.toISOString(),
     );
+    const previousExpenses = await this.#ops.expensesForRange(
+      prevWeekStart.toISOString(),
+      weekStart.toISOString(),
+    );
     const netProfit = week.profit - expenses;
     const debt = await this.#customers.debtTotals(asOf);
     const debtLastWeek = await this.outstandingAsOf(weekStart);
@@ -231,7 +235,7 @@ export class AnalyticsRepository {
         key: 'net',
         label: 'صافي الربح',
         value: netProfit,
-        delta: growth(netProfit, prevWeek.profit - expenses),
+        delta: growth(netProfit, prevWeek.profit - previousExpenses),
         progress: 0.46,
         color: '#0F172A',
       },
@@ -283,12 +287,12 @@ export class AnalyticsRepository {
   }> {
     const invoiceRow = await this.db.get(
       `SELECT COALESCE(SUM(total_piasters), 0) AS total, COUNT(*) AS n
-       FROM invoices WHERE issued_at >= ? AND issued_at <= ?`,
+       FROM invoices WHERE issued_at >= ? AND issued_at < ?`,
       [fromIso, toIso],
     );
     const returned = Number(
       (await this.db.value(
-        'SELECT COALESCE(SUM(total_piasters), 0) FROM credit_notes WHERE issued_at >= ? AND issued_at <= ?',
+        'SELECT COALESCE(SUM(total_piasters), 0) FROM credit_notes WHERE issued_at >= ? AND issued_at < ?',
         [fromIso, toIso],
       )) ?? 0,
     );
