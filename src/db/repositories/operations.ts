@@ -399,12 +399,6 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   cancelled: 'ملغي',
 };
 
-/** Calendar days in a `YYYY-MM` period, defaulting to 30 for a malformed one. */
-function daysInMonth(period: string): number {
-  const match = /^(\d{4})-(\d{2})$/.exec(period);
-  if (!match) return 30;
-  return new Date(Number(match[1]), Number(match[2]), 0).getDate();
-}
 
 function toExpense(row: Row): Expense {
   return {
