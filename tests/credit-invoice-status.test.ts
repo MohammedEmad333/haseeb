@@ -93,6 +93,43 @@ describe('credit invoice settlement status', () => {
     ).rejects.toThrow('لا يمكن إرجاع فاتورة آجلة بعد تحصيل دفعة منها');
   });
 
+  it('allows returning an unpaid invoice when a payment was targeted at a different invoice', async () => {
+    const { customer, product } = await setup();
+    const first = await h.sales.checkout({
+      lines: [{ productId: product.id, name: product.name, qty: 1, unit: product.price }],
+      paymentMethod: 'credit',
+      customerId: customer.id,
+      vatRate: 0,
+      dueAt: '2099-01-01T00:00:00.000Z',
+    });
+    const second = await h.sales.checkout({
+      lines: [{ productId: product.id, name: product.name, qty: 1, unit: product.price }],
+      paymentMethod: 'credit',
+      customerId: customer.id,
+      vatRate: 0,
+      dueAt: '2099-01-01T00:00:00.000Z',
+    });
+    const secondDebt = (await h.customers.debtsFor(customer.id))
+      .find((debt) => debt.invoiceId === second.invoice.id);
+    expect(secondDebt).toBeTruthy();
+
+    await h.customers.recordPayment({
+      customerId: customer.id,
+      amount: 500,
+      method: 'cash',
+      debtId: secondDebt!.id,
+      direction: 'receivable',
+    });
+
+    await expect(
+      h.accounting.returnInvoice(second.invoice.id, 'مدفوع جزئياً'),
+    ).rejects.toThrow('لا يمكن إرجاع فاتورة آجلة بعد تحصيل دفعة منها');
+
+    await expect(
+      h.accounting.returnInvoice(first.invoice.id, 'إلغاء الفاتورة غير المسددة'),
+    ).resolves.toMatchObject({ invoiceId: first.invoice.id });
+  });
+
   it('marks a fully returned unpaid credit invoice as settled instead of leaving it pending', async () => {
     const { customer, product } = await setup();
     const sale = await h.sales.checkout({
