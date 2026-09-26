@@ -13,6 +13,15 @@ afterEach(async () => {
 
 describe('adding inventory products', () => {
   it('creates the product and records its opening stock', async () => {
+    const supplier = await h.customers.create({
+      name: 'المورد المحلي',
+      kind: 'supplier',
+      phone: '',
+      city: '',
+      tier: null,
+      minOrderQty: 0,
+      sinceYear: null,
+    });
     const product = await h.products.create({
       name: 'قهوة عربية',
       sku: 'COFFEE-1',
@@ -22,7 +31,8 @@ describe('adding inventory products', () => {
       initialQty: 12,
       lowThreshold: 5,
       critThreshold: 2,
-      supplier: 'المورد المحلي',
+      supplier: supplier.name,
+      supplierId: supplier.id,
     });
 
     expect(product).toMatchObject({ sku: 'COFFEE-1', qtyOnHand: 12, cost: 1_250, price: 1_800 });
@@ -31,6 +41,25 @@ describe('adding inventory products', () => {
     const movement = (await h.products.movements(1))[0];
     expect(movement).toMatchObject({ productId: product.id, kind: 'purchase', qtyDelta: 12, qtyAfter: 12 });
     expect(movement.counterparty).toBe('المورد المحلي');
+
+    const payable = (await h.customers.debtors('payable')).find((row) => row.id === supplier.id);
+    expect(payable?.outstanding).toBe(15_000);
+
+    const trial = await h.accounting.trialBalance();
+    expect(trial.find((row) => row.id === 'acc-ap')?.balance).toBe(-15_000);
+  });
+
+  it('rejects free-text supplier purchases that would create untracked payables', async () => {
+    await expect(
+      h.products.create({
+        name: 'صنف مورد غير مربوط',
+        sku: 'UNLINKED-SUPPLIER',
+        cost: 500,
+        price: 800,
+        initialQty: 2,
+        supplier: 'اسم نصي فقط',
+      }),
+    ).rejects.toThrow('اختر المورد من قائمة الموردين');
   });
 
   it('rejects invalid stock movements and price updates', async () => {
