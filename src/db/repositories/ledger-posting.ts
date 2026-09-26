@@ -27,9 +27,20 @@ export async function postExpenseJournal(tx: SqlTx, input: { id: string; label: 
   await line(tx, journal, 'acc-cash', 0, input.amount);
 }
 
-export async function postPaymentJournal(tx: SqlTx, input: { id: string; method: SettlementMethod; amount: number; at: string }): Promise<void> {
+export async function postPaymentJournal(tx: SqlTx, input: {
+  id: string;
+  method: SettlementMethod;
+  amount: number;
+  direction: 'receivable' | 'payable';
+  at: string;
+}): Promise<void> {
   const journal = `je-payment-${input.id}`;
   await tx.execute('INSERT OR IGNORE INTO journal_entries VALUES (?, ?, ?, ?, ?)', [journal, 'payment', input.id, 'تسوية ذمة', input.at]);
+  if (input.direction === 'payable') {
+    await line(tx, journal, 'acc-ap', input.amount, 0);
+    await line(tx, journal, settlementAccount(input.method), 0, input.amount);
+    return;
+  }
   await line(tx, journal, settlementAccount(input.method), input.amount, 0);
   await line(tx, journal, 'acc-ar', 0, input.amount);
 }
