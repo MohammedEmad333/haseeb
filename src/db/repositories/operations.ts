@@ -133,12 +133,26 @@ export class OperationsRepository {
   async expensesForRange(fromIso: string, toIso: string): Promise<number> {
     const from = new Date(fromIso);
     const to = new Date(toIso);
-    const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || to <= from) {
+      return 0;
+    }
 
     let total = 0;
     for (const expense of await this.expenses()) {
-      const daysInPeriod = daysInMonth(expense.period);
-      total += Math.round((expense.amount * Math.min(days, daysInPeriod)) / daysInPeriod);
+      const match = /^(\d{4})-(\d{2})$/.exec(expense.period);
+      if (!match) continue;
+
+      const year = Number(match[1]);
+      const month = Number(match[2]) - 1;
+      const periodStart = new Date(Date.UTC(year, month, 1));
+      const periodEnd = new Date(Date.UTC(year, month + 1, 1));
+      const overlapStart = Math.max(from.getTime(), periodStart.getTime());
+      const overlapEnd = Math.min(to.getTime(), periodEnd.getTime());
+      if (overlapEnd <= overlapStart) continue;
+
+      const overlapDays = (overlapEnd - overlapStart) / 86_400_000;
+      const daysInPeriod = (periodEnd.getTime() - periodStart.getTime()) / 86_400_000;
+      total += Math.round((expense.amount * overlapDays) / daysInPeriod);
     }
     return total;
   }
@@ -245,8 +259,11 @@ export class OperationsRepository {
   async #nextOrderNo(direction: OrderDirection): Promise<string> {
     const prefix = direction === 'supplier' ? 'PO-' : 'ORD-';
     const last = await this.db.value<string>(
-      'SELECT order_no FROM orders WHERE order_no LIKE ? ORDER BY order_no DESC LIMIT 1',
-      [`${prefix}%`],
+      `SELECT order_no FROM orders
+       WHERE order_no LIKE ?
+       ORDER BY CAST(SUBSTR(order_no, ?) AS INTEGER) DESC
+       LIMIT 1`,
+      [`${prefix}%`, prefix.length + 1],
     );
     const next = last && Number.isFinite(Number(last.slice(prefix.length)))
       ? Number(last.slice(prefix.length)) + 1
