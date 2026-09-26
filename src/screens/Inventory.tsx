@@ -11,7 +11,7 @@ import { useHaseeb } from '@/state/HaseebProvider';
 import { useQuery } from '@/state/useQuery';
 import { Badge, Button, Card, CardBody, CardHead, EmptyState, Input, Select } from '@/ui/primitives';
 import { AutoGrid, DataTable, PageHeader, Timeline, type Column } from '@/ui/composites';
-import type { Category, Customer, Product, StockMovement } from '@/db/types';
+import type { Category, Customer, PaymentMethod, Product, StockMovement } from '@/db/types';
 import type { CreateProductInput } from '@/db/repositories/products';
 import { MOVEMENT_LABEL, STOCK_STATUS_LABEL, type StockStatus } from '@/domain/inventory';
 import { NOUNS, counted, dateAndTime, money, num, signedNum } from '@/lib/format';
@@ -201,7 +201,7 @@ export function Inventory() {
           product={receiving}
           onClose={() => setReceiving(null)}
           suppliers={view.suppliers}
-          onSubmit={async (qty, supplierId) => {
+          onSubmit={async (qty, supplierId, paymentMethod) => {
             const supplier = view.suppliers.find((item) => item.id === supplierId);
             await products!.move({
               productId: receiving.id,
@@ -209,6 +209,7 @@ export function Inventory() {
               qty,
               supplierId: supplierId || null,
               counterparty: supplier?.name ?? '',
+              paymentMethod,
             });
             await db?.flush();
             setReceiving(null);
@@ -422,12 +423,16 @@ function ReceiveDialog({
   product: Product;
   suppliers: readonly Customer[];
   onClose: () => void;
-  onSubmit: (qty: number, supplierId: string) => void | Promise<void>;
+  onSubmit: (qty: number, supplierId: string, paymentMethod: PaymentMethod) => void | Promise<void>;
 }) {
   const [qty, setQty] = useState('10');
   const [supplierId, setSupplierId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const parsed = Number(qty);
-  const invalid = !Number.isInteger(parsed) || parsed <= 0;
+  const invalid =
+    !Number.isInteger(parsed) ||
+    parsed <= 0 ||
+    (paymentMethod === 'credit' && !supplierId);
 
   return (
     <>
@@ -480,8 +485,24 @@ function ReceiveDialog({
           </div>
 
           <div>
+            <label className="hs-field__label" htmlFor="receive-payment">
+              طريقة الدفع
+            </label>
+            <Select
+              id="receive-payment"
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+            >
+              <option value="cash">نقدي</option>
+              <option value="card">بطاقة</option>
+              <option value="wallet">محفظة</option>
+              <option value="credit">آجل</option>
+            </Select>
+          </div>
+
+          <div>
             <label className="hs-field__label" htmlFor="receive-supplier">
-              المورد
+              المورد {paymentMethod === 'credit' ? '(مطلوب للآجل)' : '(اختياري)'}
             </label>
             <Select
               id="receive-supplier"
@@ -501,7 +522,7 @@ function ReceiveDialog({
               variant="action"
               style={{ flex: 1 }}
               disabled={invalid}
-              onClick={() => void onSubmit(parsed, supplierId)}
+              onClick={() => void onSubmit(parsed, supplierId, paymentMethod)}
             >
               تسجيل التوريد
             </Button>
