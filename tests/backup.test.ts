@@ -76,6 +76,21 @@ describe('reading a file back', () => {
 });
 
 describe('restoring onto another device', () => {
+  it('preserves expense payment methods across devices', async () => {
+    await source.ops.addExpense({
+      label: 'اشتراك إلكتروني',
+      amount: 750,
+      paymentMethod: 'wallet',
+      period: '2026-09',
+    });
+
+    const { bytes } = await exportBackup(source.db, PASSPHRASE);
+    await restoreBackup(target.db, bytes, PASSPHRASE);
+
+    const restored = (await target.ops.expenses('2026-09')).find((expense) => expense.label === 'اشتراك إلكتروني');
+    expect(restored).toMatchObject({ amount: 750, paymentMethod: 'wallet' });
+  });
+
   it('carries the whole ledger across', async () => {
     // Something that only exists on the source device.
     const product = await firstProduct(source);
