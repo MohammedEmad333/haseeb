@@ -62,6 +62,71 @@ describe('adding inventory products', () => {
     ).rejects.toThrow('اختر المورد من قائمة الموردين');
   });
 
+  it('posts cash receipts against cash without creating supplier debt', async () => {
+    const product = await h.products.create({
+      name: 'صنف شراء نقدي',
+      sku: 'CASH-PURCHASE',
+      cost: 1_000,
+      price: 1_500,
+      initialQty: 0,
+    });
+
+    await h.products.move({
+      productId: product.id,
+      kind: 'purchase',
+      qty: 3,
+      paymentMethod: 'cash',
+    });
+
+    const trial = await h.accounting.trialBalance();
+    expect(trial.find((row) => row.id === 'acc-inventory')?.balance).toBe(3_000);
+    expect(trial.find((row) => row.id === 'acc-cash')?.balance).toBe(-3_000);
+    expect(trial.find((row) => row.id === 'acc-ap')?.balance).toBe(0);
+    expect((await h.customers.debtTotals()).payable).toBe(0);
+  });
+
+  it('requires a supplier for credit receipts and creates a payable', async () => {
+    const product = await h.products.create({
+      name: 'صنف شراء آجل',
+      sku: 'CREDIT-PURCHASE',
+      cost: 2_000,
+      price: 2_500,
+      initialQty: 0,
+    });
+
+    await expect(
+      h.products.move({
+        productId: product.id,
+        kind: 'purchase',
+        qty: 2,
+        paymentMethod: 'credit',
+      }),
+    ).rejects.toThrow('اختر مورداً');
+
+    const supplier = await h.customers.create({
+      name: 'مورد آجل',
+      kind: 'supplier',
+      phone: '',
+      city: '',
+      tier: null,
+      minOrderQty: 0,
+      sinceYear: null,
+    });
+    await h.products.move({
+      productId: product.id,
+      kind: 'purchase',
+      qty: 2,
+      paymentMethod: 'credit',
+      supplierId: supplier.id,
+      counterparty: supplier.name,
+    });
+
+    const payable = (await h.customers.debtors('payable')).find((row) => row.id === supplier.id);
+    expect(payable?.outstanding).toBe(4_000);
+    const trial = await h.accounting.trialBalance();
+    expect(trial.find((row) => row.id === 'acc-ap')?.balance).toBe(-4_000);
+  });
+
   it('rejects invalid stock movements and price updates', async () => {
     const product = await h.products.create({
       name: 'صنف تحقق',
