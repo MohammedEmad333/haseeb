@@ -18,6 +18,7 @@
 
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite';
 import schemaSql from '../schema.sql?raw';
+import { runSchemaMigrations } from '../migrations';
 import type { DriverOptions, Row, SqlDriver, SqlTx, SqlValue } from './driver';
 
 const DATABASE = 'haseeb';
@@ -66,7 +67,9 @@ export class CapacitorSqliteDriver implements SqlDriver {
     // forward-compatibility path for an existing file.
     await db.execute(schemaSql);
 
-    return new CapacitorSqliteDriver(sqlite, db);
+    const driver = new CapacitorSqliteDriver(sqlite, db);
+    await driver.transaction((tx) => runSchemaMigrations(tx));
+    return driver;
   }
 
   async execute(sql: string, params: readonly SqlValue[] = []): Promise<void> {
