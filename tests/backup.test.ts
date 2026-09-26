@@ -88,11 +88,48 @@ describe('restoring onto another device', () => {
     const manifest = await restoreBackup(target.db, bytes, PASSPHRASE);
 
     expect(manifest.business).toBe((await source.ops.profile())!.name);
-    for (const table of ['products', 'sales', 'sale_lines', 'invoices', 'customers', 'debts', 'staff']) {
+    for (const table of [
+      'products',
+      'sales',
+      'sale_lines',
+      'invoices',
+      'customers',
+      'debts',
+      'staff',
+      'ledger_accounts',
+      'journal_entries',
+      'journal_lines',
+      'credit_notes',
+      'credit_note_lines',
+      'cash_shifts',
+    ]) {
       expect(await target.db.count(table)).toBe(await source.db.count(table));
     }
     // Stock, not just row counts: the sale's effect travelled with it.
     expect((await firstProduct(target)).qtyOnHand).toBe((await firstProduct(source)).qtyOnHand);
+  });
+
+  it('preserves credit notes and cash shifts instead of leaving stale accounting state', async () => {
+    const product = await firstProduct(source);
+    const { invoice } = await source.sales.checkout({
+      lines: [{ productId: product.id, name: product.name, qty: 1, unit: product.price, cost: product.cost }],
+      paymentMethod: 'cash',
+      vatRate: 0,
+    });
+    await source.accounting.returnInvoice(invoice.id, 'اختبار النسخة الاحتياطية');
+    await source.accounting.openShift(25_000);
+
+    const { bytes } = await exportBackup(source.db, PASSPHRASE);
+    await restoreBackup(target.db, bytes, PASSPHRASE);
+
+    expect(await target.db.count('credit_notes')).toBe(await source.db.count('credit_notes'));
+    expect(await target.db.count('credit_note_lines')).toBe(await source.db.count('credit_note_lines'));
+    expect(await target.db.count('journal_entries')).toBe(await source.db.count('journal_entries'));
+    expect(await target.db.count('journal_lines')).toBe(await source.db.count('journal_lines'));
+    expect(await target.accounting.currentShift()).toMatchObject({
+      openingCash: 25_000,
+      status: 'open',
+    });
   });
 
   it('replaces the receiving device rather than merging with it', async () => {

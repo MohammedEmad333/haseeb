@@ -54,6 +54,57 @@ describe('checkout', () => {
     expect(movement?.qtyAfter).toBe(before.qtyOnHand - 2);
   });
 
+  it('records the running stock balance when the same product appears on multiple lines', async () => {
+    const before = await oilProduct();
+
+    await h.sales.checkout({
+      lines: [
+        { productId: before.id, name: before.name, qty: 2, unit: before.price, cost: before.cost },
+        { productId: before.id, name: before.name, qty: 3, unit: before.price, cost: before.cost },
+      ],
+      paymentMethod: 'cash',
+      vatRate: 0,
+    });
+
+    expect((await oilProduct()).qtyOnHand).toBe(before.qtyOnHand - 5);
+    const movements = (await h.products.movements(20))
+      .filter((movement) => movement.productId === before.id && movement.kind === 'sale')
+      .slice(0, 2);
+
+    expect(movements).toHaveLength(2);
+    expect(movements.map((movement) => movement.qtyAfter).sort((a, b) => b - a)).toEqual([
+      before.qtyOnHand - 2,
+      before.qtyOnHand - 5,
+    ]);
+  });
+
+  it('subtracts invoice-level discounts from profit without changing COGS', async () => {
+    const product = await oilProduct();
+    const discount = 500;
+
+    const trialBefore = await h.accounting.trialBalance();
+    const cogsBefore = trialBefore.find((row) => row.id === 'acc-cogs')?.debit ?? 0;
+    const inventoryBefore = trialBefore.find((row) => row.id === 'acc-inventory')?.credit ?? 0;
+
+    const { sale } = await h.sales.checkout({
+      lines: [
+        { productId: product.id, name: product.name, qty: 2, unit: product.price, cost: product.cost },
+      ],
+      paymentMethod: 'cash',
+      vatRate: 0,
+      discount,
+    });
+
+    const expectedCogs = product.cost * 2;
+    expect(sale.profit).toBe((product.price - product.cost) * 2 - discount);
+
+    const trial = await h.accounting.trialBalance();
+    const cogs = trial.find((row) => row.id === 'acc-cogs');
+    const inventory = trial.find((row) => row.id === 'acc-inventory');
+    expect((cogs?.debit ?? 0) - cogsBefore).toBe(expectedCogs);
+    expect((inventory?.credit ?? 0) - inventoryBefore).toBe(expectedCogs);
+  });
+
   it('opens a debt for a credit sale and leaves the invoice pending', async () => {
     const product = await oilProduct();
     const customer = (await h.customers.list('retail'))[0];

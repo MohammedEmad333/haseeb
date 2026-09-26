@@ -98,7 +98,10 @@ export class SalesRepository {
   /** Next invoice number in the INV-#### series. */
   async nextInvoiceNo(): Promise<string> {
     const last = await this.db.value<string>(
-      `SELECT invoice_no FROM invoices WHERE invoice_no LIKE 'INV-%' ORDER BY invoice_no DESC LIMIT 1`,
+      `SELECT invoice_no FROM invoices
+       WHERE invoice_no LIKE 'INV-%'
+       ORDER BY CAST(SUBSTR(invoice_no, 5) AS INTEGER) DESC
+       LIMIT 1`,
     );
     const n = last ? Number(last.slice(4)) + 1 : 2482;
     return `INV-${n}`;
@@ -116,16 +119,45 @@ export class SalesRepository {
   async checkout(input: CheckoutInput): Promise<CheckoutResult> {
     if (input.lines.length === 0) throw new Error('cannot close an empty sale');
 
+    for (const line of input.lines) {
+      if (!Number.isInteger(line.qty) || line.qty <= 0) {
+        throw new Error(`كمية «${line.name}» يجب أن تكون عدداً صحيحاً أكبر من صفر.`);
+      }
+      if (!Number.isInteger(line.unit) || line.unit < 0) {
+        throw new Error(`سعر «${line.name}» غير صحيح.`);
+      }
+      if (!Number.isInteger(line.cost) || line.cost < 0) {
+        throw new Error(`تكلفة «${line.name}» غير صحيحة.`);
+      }
+      const lineDiscount = line.discount ?? 0;
+      if (!Number.isInteger(lineDiscount) || lineDiscount < 0 || lineDiscount > line.qty * line.unit) {
+        throw new Error(`خصم «${line.name}» غير صحيح.`);
+      }
+      if (
+        line.discountPercent !== undefined &&
+        (!Number.isFinite(line.discountPercent) || line.discountPercent < 0 || line.discountPercent > 100)
+      ) {
+        throw new Error(`نسبة خصم «${line.name}» غير صحيحة.`);
+      }
+    }
+    if (
+      input.discount !== undefined &&
+      (!Number.isInteger(input.discount) || input.discount < 0)
+    ) {
+      throw new Error('خصم الفاتورة غير صحيح.');
+    }
+
     const vatRate = input.vatRate ?? (await this.#vatRate());
     const subtotal = input.lines.reduce(
       (total, l) => total + (l.qty * l.unit - (l.discount ?? 0)),
       0,
     );
-    const totals = computeTotals({ subtotal, discount: input.discount ?? 0, vatRate });
+    const invoiceDiscount = input.discount ?? 0;
+    const totals = computeTotals({ subtotal, discount: invoiceDiscount, vatRate });
     const profit = input.lines.reduce(
       (total, l) => total + lineProfit(l.unit, l.cost, l.qty) - (l.discount ?? 0),
       0,
-    );
+    ) - invoiceDiscount;
 
     const saleId = newId();
     const invoiceId = newId();
@@ -203,6 +235,14 @@ export class SalesRepository {
           at,
         });
 
+        const stockAfterEachLine = new Map<string, number>();
+        for (const [productId, finalQty] of onHand) {
+          const soldQty = input.lines
+            .filter((line) => line.productId === productId)
+            .reduce((sum, line) => sum + line.qty, 0);
+          stockAfterEachLine.set(productId, finalQty + soldQty);
+        }
+
         for (const line of input.lines) {
           await tx.execute(
             `INSERT INTO sale_lines (id, sale_id, product_id, name_snapshot, qty,
@@ -222,9 +262,13 @@ export class SalesRepository {
             ],
           );
 
-          // Stock decrement lives in the same transaction as the sale. The
-          // map already holds the post-sale balance from the check above.
-          const qtyAfter = onHand.get(line.productId)!;
+          // Keep the movement timeline truthful even when the same product
+          // appears on more than one cart line. Each row must describe the
+          // balance immediately after that specific movement, not the final
+          // balance after all lines have been processed.
+          const qtyBefore = stockAfterEachLine.get(line.productId)!;
+          const qtyAfter = qtyBefore - line.qty;
+          stockAfterEachLine.set(line.productId, qtyAfter);
           await tx.execute('UPDATE products SET qty_on_hand = ? WHERE id = ?', [
             qtyAfter,
             line.productId,

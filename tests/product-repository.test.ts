@@ -33,6 +33,28 @@ describe('adding inventory products', () => {
     expect(movement.counterparty).toBe('المورد المحلي');
   });
 
+  it('rejects invalid stock movements and price updates', async () => {
+    const product = await h.products.create({
+      name: 'صنف تحقق',
+      sku: 'VALIDATE-1',
+      cost: 1_000,
+      price: 1_500,
+      initialQty: 5,
+    });
+
+    await expect(
+      h.products.move({ productId: product.id, kind: 'purchase', qty: -3 }),
+    ).rejects.toThrow();
+    await expect(
+      h.products.move({ productId: product.id, kind: 'sale', qty: 0 }),
+    ).rejects.toThrow();
+    expect((await h.products.byId(product.id))?.qtyOnHand).toBe(5);
+
+    await expect(h.products.updatePrice(product.id, -1)).rejects.toThrow();
+    await expect(h.products.updatePrice(product.id, 12.5)).rejects.toThrow();
+    expect((await h.products.byId(product.id))?.price).toBe(1_500);
+  });
+
   it('rejects duplicate SKUs and barcodes', async () => {
     await h.products.create({ name: 'صنف أول', sku: 'ONE', barcode: '12345', cost: 100, price: 150 });
 
