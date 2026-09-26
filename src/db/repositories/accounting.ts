@@ -265,7 +265,16 @@ export class AccountingRepository {
     )) ?? 0);
     const refunds = Number((await this.db.value("SELECT COALESCE(SUM(total_piasters),0) FROM credit_notes WHERE payment_method='cash' AND issued_at>=?", [from])) ?? 0);
     const expenses = Number((await this.db.value('SELECT COALESCE(SUM(amount_piasters),0) FROM expenses WHERE recorded_at>=?', [from])) ?? 0);
-    return sales + received - paidToSuppliers - refunds - expenses;
+    const cashPurchases = Number((await this.db.value(
+      `SELECT COALESCE(SUM(l.credit_piasters - l.debit_piasters), 0)
+       FROM journal_entries e
+       JOIN journal_lines l ON l.journal_id = e.id
+       WHERE e.reference_type = 'stock_purchase'
+         AND e.occurred_at >= ?
+         AND l.account_id = 'acc-cash'`,
+      [from],
+    )) ?? 0);
+    return sales + received - paidToSuppliers - refunds - expenses - cashPurchases;
   }
 
   async #nextCreditNoteNo(): Promise<string> {
