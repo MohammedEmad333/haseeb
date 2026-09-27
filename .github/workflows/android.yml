@@ -66,12 +66,18 @@ jobs:
 
       # versionName tracks package.json; versionCode must increase on every
       # build Google Play would ever see, so it is derived from the run number.
-      - name: Resolve version
+      - name: Resolve and validate version
         id: version
         run: |
-          NAME=$(node -p "require('./package.json').version")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          NAME="$PACKAGE_VERSION"
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            NAME="${GITHUB_REF_NAME#v}"
+            TAG_VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+              echo "::error::Tag version $TAG_VERSION does not match package.json version $PACKAGE_VERSION"
+              exit 1
+            fi
+            NAME="$TAG_VERSION"
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
@@ -101,6 +107,12 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Android signing secrets are incomplete — building the debug APK only."
           fi
+
+      - name: Require signing for tagged releases
+        if: github.ref_type == 'tag' && steps.signing.outputs.available != 'true'
+        run: |
+          echo "::error::Tagged releases require all Android signing secrets."
+          exit 1
 
       - name: Decode keystore
         if: steps.signing.outputs.available == 'true'
@@ -149,15 +161,22 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach Android artifacts to the release
+      - name: Attach signed Android artifacts to the release
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" artifacts/* \
+          RELEASE_FILES=(
+            "artifacts/haseeb-${{ steps.version.outputs.name }}-release.apk"
+            "artifacts/haseeb-${{ steps.version.outputs.name }}-release.aab"
+          )
+          for file in "${RELEASE_FILES[@]}"; do
+            test -f "$file" || { echo "::error::Missing signed release artifact: $file"; exit 1; }
+          done
+          gh release create "${GITHUB_REF_NAME}" "${RELEASE_FILES[@]}" \
             --title "حسيب ${{ steps.version.outputs.name }}" \
             --generate-notes \
-            || gh release upload "${GITHUB_REF_NAME}" artifacts/* --clobber
+            || gh release upload "${GITHUB_REF_NAME}" "${RELEASE_FILES[@]}" --clobber
 
   # The native SQLite driver only exists inside a device WebView, so it cannot
   # be covered by the unit tests or by a headless browser. This job installs
