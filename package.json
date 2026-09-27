@@ -1,7 +1,7 @@
 {
   "name": "haseeb",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "حسيب — offline-first accounting & POS for small retail businesses (RTL Arabic)",
   "scripts": {
