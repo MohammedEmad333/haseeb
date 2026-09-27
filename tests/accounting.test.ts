@@ -70,6 +70,31 @@ describe('double-entry accounting', () => {
     expect(returns.map((movement) => movement.qtyAfter).sort((a, b) => a - b)).toEqual([7, 10]);
   });
 
+  it('reconciles cash inventory purchases as drawer outflow', async () => {
+    const product = await h.products.create({
+      name: 'مخزون نقدي',
+      sku: 'SHIFT-PURCHASE',
+      cost: 1_000,
+      price: 1_400,
+      initialQty: 0,
+    });
+    await h.accounting.openShift(10_000);
+    await h.products.move({
+      productId: product.id,
+      kind: 'purchase',
+      qty: 2,
+      paymentMethod: 'cash',
+    });
+
+    const closed = await h.accounting.closeShift(8_000);
+    expect(closed).toMatchObject({
+      expectedCash: 8_000,
+      actualCash: 8_000,
+      difference: 0,
+      status: 'closed',
+    });
+  });
+
   it('keeps card and wallet expenses out of cash drawer reconciliation', async () => {
     await h.accounting.openShift(10_000);
     await h.ops.addExpense({ label: 'اشتراك بطاقة', amount: 500, paymentMethod: 'card' });

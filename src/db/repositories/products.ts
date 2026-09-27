@@ -1,5 +1,5 @@
 import { HaseebDatabase, newId, nowIso, type Row } from '../database';
-import type { Category, Product, StockMovement } from '../types';
+import type { Category, PaymentMethod, Product, StockMovement } from '../types';
 import {
   applyMovement,
   movementDelta,
@@ -160,7 +160,7 @@ export class ProductRepository {
           await postPurchaseJournal(tx, {
             movementId,
             amount,
-            supplier: supplierName,
+            funding: supplier ? 'credit' : 'equity',
             note: 'رصيد افتتاحي',
             at,
           });
@@ -238,6 +238,7 @@ export class ProductRepository {
     counterparty?: string;
     supplierId?: string | null;
     dueAt?: string;
+    paymentMethod?: PaymentMethod;
     note?: string;
     occurredAt?: string;
   }): Promise<number> {
@@ -261,6 +262,13 @@ export class ProductRepository {
       throw new Error('اختر المورد من قائمة الموردين بدل كتابة الاسم يدوياً.');
     }
     const supplierName = supplier ? String(supplier.name) : '';
+    const paymentMethod: PaymentMethod =
+      input.kind === 'purchase'
+        ? (input.paymentMethod ?? (supplier ? 'credit' : 'cash'))
+        : 'cash';
+    if (input.kind === 'purchase' && paymentMethod === 'credit' && !supplier) {
+      throw new Error('اختر مورداً عند تسجيل توريد آجل.');
+    }
     const qtyAfter = applyMovement(product.qtyOnHand, input.kind, input.qty);
     const delta = movementDelta(input.kind, input.qty);
     const at = input.occurredAt ?? nowIso();
@@ -298,11 +306,11 @@ export class ProductRepository {
           await postPurchaseJournal(tx, {
             movementId,
             amount,
-            supplier: supplierName,
+            funding: paymentMethod,
             note: input.note?.trim() || 'توريد مخزون',
             at,
           });
-          if (supplier && amount > 0) {
+          if (paymentMethod === 'credit' && supplier && amount > 0) {
             await tx.execute(
               `INSERT INTO debts (id, customer_id, invoice_id, direction, principal_piasters,
                  opened_at, due_at, note)
