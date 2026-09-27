@@ -86,9 +86,9 @@ npm run desktop:build   # .app / .msi / .AppImage
 **The easy way — GitHub Actions.** Every push builds an installable APK; no
 Android toolchain needed locally.
 
-1. Open the repository's **Actions** tab → **بناء تطبيق أندرويد · Android APK**.
+1. Open the repository's **Actions** tab → **بناء تطبيق أندرويد · Android APK / AAB**.
 2. Pick the run for your commit (or press **Run workflow** to start one).
-3. Download the `haseeb-apk-…` artifact from the run summary and unzip it.
+3. Download the `haseeb-android-…` artifact from the run summary and unzip it.
 4. Copy the `.apk` to a phone and open it. Android will ask you to allow
    installing from this source — that prompt is normal for an APK that did not
    come from Play.
@@ -114,7 +114,7 @@ web bundle, `local.properties`) out of the repository.
 #### Signed release builds
 
 The debug APK is signed with Android's throwaway debug key: fine for testing
-and sideloading, not for distribution. To get a signed release APK, create a
+and sideloading, not for distribution. To get signed release APK and Play-ready AAB files, create a
 keystore and add four repository secrets:
 
 ```bash
@@ -130,17 +130,20 @@ base64 -w0 haseeb.jks          # macOS: base64 -i haseeb.jks
 | `ANDROID_KEY_ALIAS` | `haseeb` |
 | `ANDROID_KEY_PASSWORD` | the key password |
 
-With those set, every run also produces a signed release APK. Pushing a tag
-(`git tag v1.0.0 && git push --tags`) creates a GitHub release with both APKs
-attached.
+With those set, every run also produces a signed release APK and AAB. Pushing a tag
+whose version exactly matches `package.json` (for example `v1.1.0`) creates a
+GitHub release containing only the signed release APK and AAB. A tagged release
+fails fast if any signing secret is missing, so an unsigned build cannot be
+published accidentally.
 
 **Keep `haseeb.jks` safe and backed up.** Android identifies an app by its
 signing key: lose it and you cannot ship an update to anyone who already
 installed the app — they would have to uninstall and reinstall, losing their
 local database with it.
 
-`versionName` follows `package.json` (or the tag), and `versionCode` is the CI
-run number, so it always increases.
+`versionName` follows `package.json`; release tags must match it exactly. `versionCode`
+is the CI run number, so it always increases. Use the `.aab` for Google Play and the
+signed `.apk` for direct installation/testing.
 
 ### iOS
 
